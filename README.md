@@ -77,4 +77,13 @@ src-tauri/    Rust(ファイル、SQLite、キーチェーンのみ)
 ```
 
 データは `~/Documents/OneDayOnePaper/` に置かれる(設定で変更可)。
-メモは `memos/*.md`、論文リストは `papers.json`、記録は `state.sqlite`。
+メモは `memos/*.md`、論文リストは `papers.json`、記録は `state.sqlite`、保存した PDF は `pdfs/`。
+
+### 実装状況
+
+- MVP: 論文リスト、今日の論文、メモと読了判定、AI 要約・採点、カレンダー、使用量、設定
+- v1: 論文を探す(OpenAlex + LLM の順位付け)、DOI / arXiv ID 取り込み、OA PDF の保存と全文抽出、
+  LLM によるキュー並べ替え、死刑機能(状態遷移・アバター・肉・墓地)、メニューバー常駐と macOS 通知
+- v2(未): 命乞いワードの LLM 生成、Slack / LINE 配信、BibTeX、講座、ポモドーロ、モバイル
+
+ウィンドウを閉じてもアプリは終了せず、メニューバーのアイコンから「開く」「終了」を選べる。

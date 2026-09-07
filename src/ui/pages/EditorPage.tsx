@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PageProps } from "../App";
-import { estimateAiCost, loadAiOutputs, openMemo, persistMemo, runAi } from "@/core/app";
+import { estimateAiCost, extractFulltext, hasPdf, loadAiOutputs, openMemo, persistMemo, runAi } from "@/core/app";
 import type { GradeOutput, Memo, SummaryOutput } from "@/core/types";
 import { countMemoChars } from "@/core/memo/format";
 import { judgeCompletion } from "@/core/memo/completion";
@@ -98,7 +98,10 @@ function AiPanel({ state, setState, memo, paperCtxBase }: { state: PageProps["st
   const [grade, setGrade] = useState<GradeOutput | null>(null);
   const [inputKind, setInputKind] = useState<PaperContext["inputKind"]>("abstract");
   const [pasted, setPasted] = useState("");
+  const [fulltext, setFulltext] = useState<{ text: string; tokens: number } | null>(null);
+  const [pdfAvailable, setPdfAvailable] = useState(false);
   const [running, setRunning] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -106,11 +109,30 @@ function AiPanel({ state, setState, memo, paperCtxBase }: { state: PageProps["st
       setSummary(o.summary);
       setGrade(o.grade);
     });
-  }, [paper.id]);
+    hasPdf(state, paper).then((h) => setPdfAvailable(h || !!paper.pdf_url));
+  }, [paper.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const text = inputKind === "pasted" ? pasted : (paper.abstract ?? "");
+  // 全文を選んだら抽出してトークン数を出す(仕様 7.3)
+  useEffect(() => {
+    if (inputKind !== "fulltext" || fulltext) return;
+    setExtracting(true);
+    setErr(null);
+    extractFulltext(state, paper)
+      .then((r) => {
+        setState(r.state);
+        setFulltext({ text: r.text, tokens: r.tokens });
+      })
+      .catch((e) => {
+        setErr(`全文を用意できませんでした: ${e instanceof Error ? e.message : e}`);
+        setInputKind("abstract");
+      })
+      .finally(() => setExtracting(false));
+  }, [inputKind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const text = inputKind === "pasted" ? pasted : inputKind === "fulltext" ? (fulltext?.text ?? "") : (paper.abstract ?? "");
   const ctx: PaperContext = { paper, text: text || "(アブストラクトなし。タイトルと書誌情報のみ)", inputKind };
   const est = estimateAiCost(state.settings, ctx, memo.body);
+  const absEst = estimateAiCost(state.settings, { paper, text: paper.abstract ?? "", inputKind: "abstract" }, memo.body);
 
   const run = async () => {
     setRunning(true);
@@ -135,7 +157,8 @@ function AiPanel({ state, setState, memo, paperCtxBase }: { state: PageProps["st
           <div className="field">
             <label>LLM に渡す論文情報</label>
             <select value={inputKind} onChange={(e) => setInputKind(e.target.value as PaperContext["inputKind"])}>
-              <option value="abstract">アブストラクトのみ(既定)</option>
+              <option value="abstract">アブストラクトのみ(既定・約 {formatUsd(absEst.costUsd)})</option>
+              <option value="fulltext" disabled={!pdfAvailable}>全文 PDF{pdfAvailable ? (fulltext ? `(約 ${fulltext.tokens.toLocaleString()} トークン)` : "") : "(PDF なし)"}</option>
               <option value="pasted">本文を貼り付ける</option>
             </select>
           </div>
@@ -144,11 +167,13 @@ function AiPanel({ state, setState, memo, paperCtxBase }: { state: PageProps["st
               <textarea rows={6} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="論文本文をここに貼り付け" />
             </div>
           )}
+          {extracting && <p className="muted">PDF から本文を抽出中…</p>}
           <p className="muted">
-            推定: 入力 約 {est.inputTokens.toLocaleString()} トークン + 出力 約 {est.outputTokensGuess.toLocaleString()} トークン ≈ {formatUsd(est.costUsd)}
+            推定: 入力 約 {est.inputTokens.toLocaleString()} トークン + 出力 約 {est.outputTokensGuess.toLocaleString()} トークン ≈ <strong>{formatUsd(est.costUsd)}</strong>
             <br />({state.settings.llm.provider} / {state.settings.llm.model})
+            {inputKind !== "abstract" && <><br />アブストのみなら約 {formatUsd(absEst.costUsd)}</>}
           </p>
-          <button className="btn" disabled={running} onClick={run}>{running ? "実行中…" : "要約と採点を実行"}</button>
+          <button className="btn" disabled={running || extracting} onClick={run}>{running ? "実行中…" : "要約と採点を実行"}</button>
           {err && <p className="error">{err}</p>}
         </>
       )}

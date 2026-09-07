@@ -1,14 +1,21 @@
 import { useState } from "react";
 import type { PageProps } from "../App";
-import { addPaper, importCsv, remove, reorder } from "@/core/app";
+import { addPaper, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
+
+const CRITERIA = ["基礎から応用へ(読む順として自然な順)", "難易度が低い順", "新しい順", "被引用・影響力が大きい順"];
 
 export function PapersPage({ state, setState, go }: PageProps) {
   const q = queue(state.papers);
   const read = state.papers.filter((p) => p.status === "read").sort((a, b) => (a.read_at! < b.read_at! ? 1 : -1));
   const [msg, setMsg] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [showDoi, setShowDoi] = useState(false);
+  const [doiText, setDoiText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [criterion, setCriterion] = useState(CRITERIA[0]);
+  const [reasons, setReasons] = useState<Map<string, string>>(new Map());
 
   const move = async (id: string, dir: -1 | 1) => {
     const ids = q.map((p) => p.id);
@@ -20,10 +27,39 @@ export function PapersPage({ state, setState, go }: PageProps) {
   };
 
   const onCsv = async (file: File) => {
-    const text = await file.text();
-    const r = await importCsv(state, text);
+    const r = await importCsv(state, await file.text());
     setState(r.state);
     setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+  };
+
+  const onDoi = async () => {
+    setBusy(true);
+    try {
+      const r = await importDois(state, doiText);
+      setState(r.state);
+      setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+      if (r.added) {
+        setDoiText("");
+        setShowDoi(false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onLlmReorder = async () => {
+    if (!confirm(`LLM にキュー ${q.length} 本を「${criterion}」で並べ替えさせます。API を呼びます。`)) return;
+    setBusy(true);
+    try {
+      const r = await llmReorderQueue(state, criterion);
+      setState(r.state);
+      setReasons(r.reasons);
+      setMsg(["並べ替えました"]);
+    } catch (e) {
+      setMsg(["", `並べ替えに失敗: ${e instanceof Error ? e.message : e}`]);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -31,14 +67,25 @@ export function PapersPage({ state, setState, go }: PageProps) {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h1>論文リスト</h1>
         <div className="row">
+          <button className="btn secondary" onClick={() => go({ name: "explore" })}>論文を探す</button>
           <label className="btn secondary">
             CSV を読み込む
             <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && onCsv(e.target.files[0])} />
           </label>
+          <button className="btn secondary" onClick={() => setShowDoi((v) => !v)}>DOI で追加</button>
           <button className="btn" onClick={() => setShowAdd((v) => !v)}>手入力で追加</button>
         </div>
       </div>
-      {msg.length > 0 && <div className="card">{msg.map((m, i) => <div key={i} className={i === 0 ? "ok" : "error"}>{m}</div>)}</div>}
+      {msg.length > 0 && <div className="card">{msg.map((m, i) => m && <div key={i} className={i === 0 ? "ok" : "error"}>{m}</div>)}</div>}
+      {showDoi && (
+        <div className="card">
+          <div className="field">
+            <label>DOI または arXiv ID を 1 行に 1 つ(URL 形式でも可)。書誌情報は OpenAlex / arXiv から取ります</label>
+            <textarea rows={4} value={doiText} onChange={(e) => setDoiText(e.target.value)} placeholder={"1706.03762\nhttps://doi.org/10.1109/CVPR.2016.90"} />
+          </div>
+          <button className="btn" disabled={busy || !doiText.trim()} onClick={onDoi}>{busy ? "取得中…" : "追加"}</button>
+        </div>
+      )}
       {showAdd && (
         <AddForm
           onAdd={async (input) => {
@@ -49,7 +96,15 @@ export function PapersPage({ state, setState, go }: PageProps) {
       )}
       <p className="muted">CSV の列: title(必須), authors(「;」区切り), year, venue, doi, url, pdf_url, abstract, reason</p>
 
-      <h2>キュー({q.length})</h2>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2>キュー({q.length})</h2>
+        {q.length >= 2 && (
+          <div className="row">
+            <select value={criterion} onChange={(e) => setCriterion(e.target.value)}>{CRITERIA.map((c) => <option key={c}>{c}</option>)}</select>
+            <button className="btn secondary small" disabled={busy} onClick={onLlmReorder}>LLM で並べ替え</button>
+          </div>
+        )}
+      </div>
       {q.length === 0 && <p className="muted">空です</p>}
       <table>
         <tbody>
@@ -60,6 +115,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
                 <strong>{p.title}</strong>
                 <PaperMeta paper={p} />
                 {p.reason && <div className="muted">{p.reason}</div>}
+                {reasons.get(p.id) && <div className="muted">並べ替えの理由: {reasons.get(p.id)}</div>}
               </td>
               <td style={{ whiteSpace: "nowrap", width: 220 }}>
                 <button className="btn secondary small" onClick={() => move(p.id, -1)} disabled={i === 0}>↑</button>{" "}

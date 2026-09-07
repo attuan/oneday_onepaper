@@ -1,4 +1,4 @@
-// LLM タスク(仕様 7.2)。MVP は summary と grade。
+// LLM タスク(仕様 7.2): recommend / rank / summary / grade
 
 import type { GradeOutput, Paper, SummaryOutput } from "@/core/types";
 import { parseJsonLoose, type LlmProvider, type LlmResponse } from "./provider";
@@ -99,3 +99,93 @@ export async function runGrade(llm: LlmProvider, ctx: PaperContext, memoBody: st
 }
 
 export type TaskResult<T> = { output: T; res: LlmResponse };
+
+
+// ---- recommend: キーワード → 検索クエリ(仕様 7.2) ----
+
+const RECOMMEND_SCHEMA = {
+  type: "object",
+  properties: { queries: { type: "array", items: { type: "string" } } },
+  required: ["queries"],
+  additionalProperties: false,
+};
+
+export function buildRecommendRequest(keywords: string, context: string, language: string) {
+  return {
+    system:
+      "あなたは研究者の文献調査を助ける司書です。ユーザーの興味に基づき、学術検索エンジン(OpenAlex)に投げる英語の検索クエリを 4〜6 個作ってください。基礎となる古典・サーベイ・最近の代表的手法が混ざるように、観点を変えたクエリにしてください。各クエリは 2〜6 語。",
+    user: `興味のあるキーワード: ${keywords}${context ? `\n補足: ${context}` : ""}\n\n出力言語(クエリ以外の説明は不要): ${language}`,
+    schema: RECOMMEND_SCHEMA,
+    maxTokens: 512,
+    effort: "low" as const,
+  };
+}
+
+export async function runRecommend(llm: LlmProvider, keywords: string, context: string, language: string): Promise<TaskResult<{ queries: string[] }>> {
+  const res = await llm.complete(buildRecommendRequest(keywords, context, language));
+  return { output: parseJsonLoose<{ queries: string[] }>(res.text), res };
+}
+
+// ---- rank: 候補を順位付けし「読むべき理由」を付ける ----
+
+export interface RankCandidate {
+  id: string;
+  title: string;
+  authors?: string[];
+  year?: number | null;
+  venue?: string | null;
+  abstract?: string | null;
+  cited_by?: number;
+}
+
+export interface RankItem {
+  id: string;
+  rank: number;
+  reason: string;
+}
+
+const RANK_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, rank: { type: "integer" }, reason: { type: "string" } },
+        required: ["id", "rank", "reason"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+export function buildRankRequest(cands: RankCandidate[], purpose: string, criterion: string, language: string) {
+  const lang = language === "en" ? "English" : "日本語";
+  const list = cands
+    .map((c, i) => {
+      const abs = c.abstract ? c.abstract.slice(0, 600) : "(アブストなし)";
+      return `[${i + 1}] id=${c.id}\n${c.title}\n${(c.authors ?? []).slice(0, 3).join(", ")} (${c.year ?? "?"}) ${c.venue ?? ""} 被引用 ${c.cited_by ?? "?"}\n${abs}`;
+    })
+    .join("\n\n");
+  return {
+    system: `あなたは研究者の読書計画を助けるメンターです。候補論文を「${criterion}」の基準で並べ、各論文に 1〜2 文の「読むべき理由」を付けてください。理由は${lang}で、その論文固有の内容に触れること。候補にない論文を足さないこと。id は与えられたものをそのまま使うこと。`,
+    user: `目的: ${purpose}\n\n候補:\n${list}\n\n全候補を rank 1 から順に並べて items に入れてください。`,
+    schema: RANK_SCHEMA,
+    maxTokens: 4096,
+    effort: "medium" as const,
+  };
+}
+
+export async function runRank(llm: LlmProvider, cands: RankCandidate[], purpose: string, criterion: string, language: string): Promise<TaskResult<RankItem[]>> {
+  const res = await llm.complete(buildRankRequest(cands, purpose, criterion, language));
+  const out = parseJsonLoose<{ items: RankItem[] }>(res.text);
+  const known = new Set(cands.map((c) => c.id));
+  const items = out.items.filter((it) => known.has(it.id)).sort((a, b) => a.rank - b.rank);
+  // 抜けた候補は末尾に
+  const seen = new Set(items.map((i) => i.id));
+  let r = items.length;
+  for (const c of cands) if (!seen.has(c.id)) items.push({ id: c.id, rank: ++r, reason: "" });
+  return { output: items, res };
+}
