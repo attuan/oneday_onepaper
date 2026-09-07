@@ -88,3 +88,6 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .plea { font-style: italic; color: var(--death-accent); }
 .swatch { width: 28px; height: 28px; border-radius: 6px; border: 2px solid var(--border); padding: 0; }
 .swatch.on { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-mid); }
+.cal-entry { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 2px 0; font: inherit; color: inherit; border-radius: 4px; }
+.cal-entry:hover { background: rgba(30, 95, 184, 0.12); }
+.cal-entry .t { text-decoration: underline dotted; }

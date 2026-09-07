@@ -4,7 +4,7 @@ import { calendarLogs } from "@/core/app";
 import type { DayLog } from "@/core/types";
 import { pad2 } from "@/core/schedule/logicalDay";
 
-export function CalendarPage({ state }: PageProps) {
+export function CalendarPage({ state, go }: PageProps) {
   const [ym, setYm] = useState(state.today.slice(0, 7));
   const [logs, setLogs] = useState<DayLog[]>([]);
   const [y, m] = ym.split("-").map(Number);
@@ -23,11 +23,11 @@ export function CalendarPage({ state }: PageProps) {
   }, [logs]);
 
   const memosByDate = useMemo(() => {
-    const map = new Map<string, { title: string; score: number | null }[]>();
+    const map = new Map<string, { paperId: string; title: string; score: number | null }[]>();
     for (const mm of state.memos) {
       if (!mm.frontmatter.completed) continue;
       const p = state.papers.find((x) => x.id === mm.frontmatter.paper_id);
-      (map.get(mm.frontmatter.date) ?? map.set(mm.frontmatter.date, []).get(mm.frontmatter.date)!).push({ title: p?.title ?? mm.frontmatter.paper_id, score: mm.frontmatter.score_total });
+      (map.get(mm.frontmatter.date) ?? map.set(mm.frontmatter.date, []).get(mm.frontmatter.date)!).push({ paperId: mm.frontmatter.paper_id, title: p?.title ?? mm.frontmatter.paper_id, score: mm.frontmatter.score_total });
     }
     return map;
   }, [state.memos, state.papers]);
@@ -61,10 +61,10 @@ export function CalendarPage({ state }: PageProps) {
             <div className={cls} key={date} title={date}>
               <div className="n">{Number(date.slice(8))}</div>
               {reads.map((r, j) => (
-                <div key={j}>
+                <button key={j} type="button" className="cal-entry" title={`${r.title} のメモを開く`} onClick={() => go({ name: "editor", paperId: r.paperId })}>
                   <div className="t">{r.title}</div>
                   {r.score !== null && <div className="s">{r.score} 点</div>}
-                </div>
+                </button>
               ))}
               {kind === "missed" && <div className="muted">未読</div>}
               {kind === "rest" && <div className="muted">休み</div>}

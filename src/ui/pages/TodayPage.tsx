@@ -3,6 +3,7 @@ import type { PageProps } from "../App";
 import { downloadPdf, hasPdf, skipToday, today } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
+import { ConfirmButton } from "../components/ConfirmButton";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { pdfPath } from "@/core/app";
 
@@ -26,10 +27,12 @@ export function TodayPage({ state, setState, go }: PageProps) {
   }
   const next = queue(state.papers)[1];
   const skip = async () => {
-    if (!confirm(`「${paper.title}」を後回しにします。キューの末尾に移動し、次の論文を出します。`)) return;
     setBusy(true);
-    setState(await skipToday(state, paper.id));
-    setBusy(false);
+    try {
+      setState(await skipToday(state, paper.id));
+    } finally {
+      setBusy(false);
+    }
   };
   const fetchPdf = async () => {
     setBusy(true);
@@ -63,9 +66,13 @@ export function TodayPage({ state, setState, go }: PageProps) {
         {paper.abstract && (<><h2>アブストラクト</h2><p style={{ whiteSpace: "pre-wrap" }}>{paper.abstract}</p></>)}
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn" onClick={() => go({ name: "editor", paperId: paper.id })}>メモを書く</button>
-          <button className="btn secondary" disabled={busy || !next} onClick={skip}>
-            スキップ{next ? `(次: ${next.title.slice(0, 24)}…)` : "(次がありません)"}
-          </button>
+          <ConfirmButton
+            label={`スキップ${next ? `(次: ${next.title.slice(0, 24)}…)` : "(次がありません)"}`}
+            confirmLabel="末尾に回して次を出す"
+            className="btn secondary"
+            disabled={busy || !next}
+            onConfirm={skip}
+          />
         </div>
         {paper.skip_count > 0 && <p className="muted" style={{ marginTop: 8 }}>この論文は {paper.skip_count} 回スキップされています</p>}
       </div>

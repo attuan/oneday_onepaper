@@ -3,6 +3,7 @@ import type { PageProps } from "../App";
 import { addPaper, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
+import { ConfirmButton } from "../components/ConfirmButton";
 
 const CRITERIA = ["基礎から応用へ(読む順として自然な順)", "難易度が低い順", "新しい順", "被引用・影響力が大きい順"];
 
@@ -48,7 +49,6 @@ export function PapersPage({ state, setState, go }: PageProps) {
   };
 
   const onLlmReorder = async () => {
-    if (!confirm(`LLM にキュー ${q.length} 本を「${criterion}」で並べ替えさせます。API を呼びます。`)) return;
     setBusy(true);
     try {
       const r = await llmReorderQueue(state, criterion);
@@ -101,7 +101,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
         {q.length >= 2 && (
           <div className="row">
             <select value={criterion} onChange={(e) => setCriterion(e.target.value)}>{CRITERIA.map((c) => <option key={c}>{c}</option>)}</select>
-            <button className="btn secondary small" disabled={busy} onClick={onLlmReorder}>LLM で並べ替え</button>
+            <ConfirmButton label="LLM で並べ替え" confirmLabel={`API を呼んで ${q.length} 本を並べ替える`} className="btn secondary small" disabled={busy} onConfirm={onLlmReorder} />
           </div>
         )}
       </div>
@@ -121,7 +121,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
                 <button className="btn secondary small" onClick={() => move(p.id, -1)} disabled={i === 0}>↑</button>{" "}
                 <button className="btn secondary small" onClick={() => move(p.id, 1)} disabled={i === q.length - 1}>↓</button>{" "}
                 <button className="btn small" onClick={() => go({ name: "editor", paperId: p.id })}>メモ</button>{" "}
-                <button className="btn danger small" onClick={async () => { if (confirm("リストから外しますか?")) setState(await remove(state, p.id)); }}>外す</button>
+                <ConfirmButton label="外す" confirmLabel="外す(確定)" onConfirm={async () => setState(await remove(state, p.id))} />
               </td>
             </tr>
           ))}
