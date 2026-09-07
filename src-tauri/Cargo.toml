@@ -1,0 +1,23 @@
+[package]
+name = "oneday-onepaper"
+version = "0.1.0"
+description = "One day, One paper (or death)"
+authors = ["attuan"]
+edition = "2021"
+
+[lib]
+name = "oneday_onepaper_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+keyring = { version = "3", features = ["apple-native"] }
+dirs = "5"
