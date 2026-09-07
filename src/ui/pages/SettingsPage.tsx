@@ -122,7 +122,24 @@ export function SettingsPage({ state, setState }: PageProps) {
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>死刑機能</h2>
-        <label><input type="checkbox" checked={s.death_mode} onChange={(e) => setS({ ...s, death_mode: e.target.checked })} /> 有効にする(オフのときは「シンプル機能」)</label>
+        <label>
+          <input
+            type="checkbox"
+            checked={s.death_mode}
+            onChange={async (e) => {
+              // このチェックだけは保存ボタンを待たずに即反映する
+              const next = { ...s, death_mode: e.target.checked };
+              setS(next);
+              try {
+                setState(await updateSettings(state, next));
+                setMsg(next.death_mode ? "死刑機能をオンにしました" : "死刑機能をオフにしました(シンプル機能)");
+              } catch (err) {
+                setMsg(`切り替えに失敗: ${err}`);
+              }
+            }}
+          />{" "}
+          有効にする(オフのときは「シンプル機能」)。この項目は即反映されます
+        </label>
         <p className="muted">読まなかった日があると囚人が死に、連続記録はリセット、肉は半減、墓地に記録が残ります。オフにしても読了の記録は残り、オンに戻したときにオフ期間の未読で死ぬことはありません。</p>
         {s.death_mode && (
           <div className="row" style={{ alignItems: "flex-start", marginTop: 10 }}>
