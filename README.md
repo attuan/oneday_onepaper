@@ -89,7 +89,8 @@ npm run typecheck
 | 出版社・リポジトリの PDF | 行き先次第 |
 
 `proxy/` の Cloudflare Worker を置き、ビルド時に `VITE_PROXY_BASE` を渡すと、
-別オリジンへの GET がすべて中継経由になる(POST とローカルの Ollama は直接のまま)。
+別オリジンへの GET がすべて中継経由になる(POST とローカルの Ollama は直接のまま。
+例外として Slack / LINE への通知の POST だけは中継に回す)。
 中継は学術 API のほかは PDF しか通さず、Origin が `ALLOWED_ORIGINS` に無いリクエストは断る。
 
 ```sh
@@ -124,13 +125,51 @@ GitHub Pages のようにサブパス(`/リポジトリ名/`)に置くときは 
 
 取り込むと今のデータは置き換わる。置き換える前の状態はデータフォルダの `backups/` に自動で書き出される。
 
+### 通知を Slack / LINE に送る
+
+設定 → 通知 → 配信先で有効にする。文面はデスクトップの通知と同じ(朝・夜・最終通知)。
+
+- **Slack**: Slack の「アプリ」→「Incoming Webhooks」でチャンネルを選び、発行された URL を入れる。
+  ブラウザ版は中継が無くても送れる(送信の成否は分からない)。
+- **LINE**: [LINE Developers](https://developers.line.biz/) で Messaging API のチャネルを作り、
+  長期のチャネルアクセストークンと、自分のユーザー ID(チャネル基本設定の「あなたのユーザー ID」)を入れる。
+  ボットを友だち追加しておくこと。ブラウザ版から送るには CORS 中継が要る(中継は POST をこの 2 ホストにだけ通す)。
+
+どちらも「テスト送信」で確かめられる。URL とトークンはキーチェーン(ブラウザ版は localStorage)に置かれ、書き出す ZIP には入らない。
+
+### BibTeX
+
+論文リスト → BibTeX。Zotero / Mendeley / Paperpile などから書き出した `.bib` を読み込むか、エントリを貼り付ける。
+取り込んだエントリは論文ごとに残り、書き出すときにそのまま使われる。取り込み元が無い論文は書誌情報から生成する。
+書き出しは「すべて」「キューだけ」「読了だけ」を選べる。
+
+### モバイル(iOS / Android)
+
+コードはモバイルでも動く構成にしてあるが、この Mac には Xcode 本体と Android SDK が無いため**実機ビルドは未検証**。
+
+- 必要なもの: iOS は Xcode(Command Line Tools だけでは不可)と `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`、
+  Android は Android Studio(SDK / NDK)と `rustup target add aarch64-linux-android` ほか
+- 初期化と起動(`src-tauri/gen/` は .gitignore 済み):
+
+```sh
+npm run tauri ios init && npm run tauri ios dev
+npm run tauri android init && npm run tauri android dev
+```
+
+- デスクトップとの違い: トレイ常駐と「閉じても隠す」は無い(`cfg(desktop)`)。通知はアプリを開いている間のタイマーで出す。
+  既定のデータフォルダはアプリのサンドボックス内。Android は keyring のネイティブ保管が無いので API キーの保存は動かない(要対応)。
+- ブラウザ版も 720px 以下ではナビが上のバーになり、スマートフォンで使える。
+
 ### 構成
 
 ```
 src/core/     本体ロジック(Tauri 非依存。テスト可能)
   schedule/   論理日・休み・前日判定
-  papers/     キュー操作・CSV
+  papers/     キュー操作・CSV・BibTeX
   memo/       メモ形式・読了判定
+  notify.ts   通知の文面と配信(notifyChannels.ts が Slack / LINE)
+  pomodoro.ts ポモドーロの状態遷移
+  markdown.ts 講座用の Markdown レンダラ
   llm/        プロバイダ抽象層(Anthropic / Ollama)・要約・採点
   usage/      単価表・概算
   store/      データの保存
@@ -142,6 +181,7 @@ src/core/     本体ロジック(Tauri 非依存。テスト可能)
     install.ts   起動時にどの実装を使うか決める
   archive.ts  データの書き出し・取り込み(ZIP)
   app.ts      UI から呼ぶ操作
+src/content/  講座(静的 Markdown)
 src/ui/       React 画面
 src-tauri/    Rust(ファイル、SQLite、キーチェーンのみ)
 proxy/        ブラウザ版の CORS 中継(Cloudflare Workers)
@@ -157,7 +197,8 @@ proxy/        ブラウザ版の CORS 中継(Cloudflare Workers)
   LLM がクエリ生成と順位付け)、DOI / arXiv ID 取り込み、OA PDF の保存と全文抽出、
   LLM によるキュー並べ替え、メニューバー常駐と macOS 通知
 - Web: ブラウザ版(OPFS + sql.js + pdf.js)、CORS 中継、データの書き出し・取り込み
-- v2(未): Slack / LINE 配信、BibTeX、講座、ポモドーロ、モバイル(ブラウザ版も狭い画面には未対応)
+- v2: Slack / LINE 配信、BibTeX の取り込み・書き出し、講座(4 本)、ポモドーロ、狭い画面(モバイル)向けの画面。
+  iOS / Android の実機ビルドは未検証(下の「モバイル」)
 - 削除: 死刑機能(囚人アバター・肉・墓地・命乞い)は 2026-09-15 に取り下げた。論文を量で追う仕掛けは本筋でないと判断
 
 デスクトップ版はウィンドウを閉じても終了せず、メニューバーのアイコンから「開く」「終了」を選べる。

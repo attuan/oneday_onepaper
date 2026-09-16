@@ -51,6 +51,7 @@ export function mergeSettings(dataDir: string, stored: Partial<Settings>): Setti
     grace: { ...DEFAULT_SETTINGS.grace, ...(stored.grace ?? {}) },
     search: { ...DEFAULT_SETTINGS.search, ...(stored.search ?? {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(stored.notifications ?? {}) },
+    pomodoro: { ...DEFAULT_SETTINGS.pomodoro, ...(stored.pomodoro ?? {}) },
   };
 }
 

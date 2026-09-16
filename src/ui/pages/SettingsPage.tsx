@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { exportData, getApiKey, getSemanticScholarKey, importData, PartialImportError, platform, setApiKey, setSemanticScholarKey, updateSettings } from "@/core/app";
+import { exportData, getApiKey, getLineToken, getSemanticScholarKey, getSlackWebhook, importData, PartialImportError, platform, sendTestNotification, setApiKey, setLineToken, setSemanticScholarKey, setSlackWebhook, updateSettings } from "@/core/app";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { stashImportReport } from "../components/ImportNotice";
 import { SOURCES } from "@/core/scholar/sources";
-import type { Settings, SourceId } from "@/core/types";
+import type { NotifyChannel, Settings, SourceId } from "@/core/types";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -22,12 +22,20 @@ export function SettingsPage({ state, setState }: PageProps) {
   const [exporting, setExporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importErr, setImportErr] = useState<{ text: string; reload: boolean } | null>(null);
+  const [slackUrl, setSlackUrl] = useState("");
+  const [hasSlack, setHasSlack] = useState(false);
+  const [lineTok, setLineTok] = useState("");
+  const [hasLine, setHasLine] = useState(false);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [testing, setTesting] = useState<NotifyChannel | null>(null);
   const web = platform() === "web";
   const keyStore = web ? "このブラウザに保存。暗号化はされません" : "OS のキーチェーンに保存";
 
   useEffect(() => {
     getApiKey().then((k) => setHasKey(!!k));
     getSemanticScholarKey().then((k) => setHasS2Key(!!k));
+    getSlackWebhook().then((k) => setHasSlack(!!k));
+    getLineToken().then((k) => setHasLine(!!k));
   }, []);
 
   const save = async () => {
@@ -43,6 +51,7 @@ export function SettingsPage({ state, setState }: PageProps) {
         setHasS2Key(true);
         setS2Key("");
       }
+      await saveNotifySecrets();
       setMsg("保存しました");
     } catch (e) {
       setMsg(`保存に失敗: ${e}`);
@@ -69,6 +78,37 @@ export function SettingsPage({ state, setState }: PageProps) {
       location.reload();
     } catch (e) {
       setImportErr({ text: errText(e), reload: e instanceof PartialImportError });
+    }
+  };
+
+  /** 通知の秘密情報(Webhook URL・トークン)。テスト送信の前にも保存する */
+  const saveNotifySecrets = async () => {
+    if (slackUrl) {
+      await setSlackWebhook(slackUrl);
+      setHasSlack(true);
+      setSlackUrl("");
+    }
+    if (lineTok) {
+      await setLineToken(lineTok);
+      setHasLine(true);
+      setLineTok("");
+    }
+  };
+
+  const toggleChannel = (c: NotifyChannel) =>
+    setS({ ...s, notifications: { ...s.notifications, channels: s.notifications.channels.includes(c) ? s.notifications.channels.filter((x) => x !== c) : [...s.notifications.channels, c] } });
+
+  const testSend = async (c: NotifyChannel) => {
+    setTesting(c);
+    setTestMsg(null);
+    try {
+      await saveNotifySecrets();
+      await sendTestNotification(s, c);
+      setTestMsg(`${c === "os" ? "通知" : c === "slack" ? "Slack" : "LINE"} にテスト送信しました`);
+    } catch (e) {
+      setTestMsg(`テスト送信に失敗: ${errText(e)}`);
+    } finally {
+      setTesting(null);
     }
   };
 
@@ -174,12 +214,56 @@ export function SettingsPage({ state, setState }: PageProps) {
           <div className="field"><label>夜の通知(未読のとき)</label><input type="time" value={s.notifications.evening} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, evening: e.target.value } })} /></div>
           <div className="field"><label>締切の何分前に最終通知</label><input type="number" min={5} value={s.notifications.last_call_minutes_before} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, last_call_minutes_before: Number(e.target.value) } })} /></div>
         </div>
-        <label><input type="checkbox" checked={s.notifications.channels.includes("os")} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, channels: e.target.checked ? ["os"] : [] } })} /> {web ? "ブラウザの通知を使う" : "macOS の通知を使う"}</label>
+        <h3>配信先</h3>
+        <div className="row">
+          <label><input type="checkbox" checked={s.notifications.channels.includes("os")} onChange={() => toggleChannel("os")} /> {web ? "ブラウザの通知" : "macOS の通知"}</label>
+          <button className="btn secondary small" disabled={testing !== null} onClick={() => testSend("os")}>{testing === "os" ? "送信中…" : "テスト送信"}</button>
+        </div>
         <p className="muted">
           {web
             ? "このタブを開いている間だけ通知します。タブを閉じると届きません。休みの日は通知しません。"
             : "ウィンドウを閉じてもメニューバーに常駐し、通知を出します。終了はメニューバーのアイコンから。休みの日は通知しません。"}
         </p>
+
+        <div className="row">
+          <label><input type="checkbox" checked={s.notifications.channels.includes("slack")} onChange={() => toggleChannel("slack")} /> Slack(Incoming Webhook)</label>
+          <button className="btn secondary small" disabled={testing !== null || (!hasSlack && !slackUrl)} onClick={() => testSend("slack")}>{testing === "slack" ? "送信中…" : "テスト送信"}</button>
+        </div>
+        <div className="field">
+          <label>Webhook URL({keyStore}。{hasSlack ? "設定済み" : "未設定"})</label>
+          <input type="password" value={slackUrl} onChange={(e) => setSlackUrl(e.target.value)} placeholder={hasSlack ? "変更する場合のみ入力" : "https://hooks.slack.com/services/..."} />
+          <span className="muted">Slack の「アプリ」→「Incoming Webhooks」でチャンネルを選ぶと URL が発行されます。{web && " ブラウザ版は CORS 中継が無くても送れますが、送信の成否は分かりません。"}</span>
+        </div>
+
+        <div className="row">
+          <label><input type="checkbox" checked={s.notifications.channels.includes("line")} onChange={() => toggleChannel("line")} /> LINE(Messaging API)</label>
+          <button className="btn secondary small" disabled={testing !== null || (!hasLine && !lineTok) || !s.notifications.line_to.trim()} onClick={() => testSend("line")}>{testing === "line" ? "送信中…" : "テスト送信"}</button>
+        </div>
+        <div className="row">
+          <div className="field" style={{ flex: 2 }}>
+            <label>チャネルアクセストークン({keyStore}。{hasLine ? "設定済み" : "未設定"})</label>
+            <input type="password" value={lineTok} onChange={(e) => setLineTok(e.target.value)} placeholder={hasLine ? "変更する場合のみ入力" : "LINE Developers で発行した長期トークン"} />
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>送信先(自分のユーザー ID)</label>
+            <input value={s.notifications.line_to} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, line_to: e.target.value } })} placeholder="U で始まる ID" />
+          </div>
+        </div>
+        <p className="muted">
+          LINE Developers で Messaging API のチャネルを作り、そのボットを友だち追加してください。ユーザー ID はチャネルの「チャネル基本設定」にある「あなたのユーザー ID」です。
+          {web && " ブラウザ版から送るには CORS 中継(VITE_PROXY_BASE)が必要です。"}
+        </p>
+        {testMsg && <p className={testMsg.startsWith("テスト送信に失敗") ? "error" : "ok"}>{testMsg}</p>}
+      </div>
+
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>ポモドーロ</h2>
+        <label><input type="checkbox" checked={s.pomodoro.enabled} onChange={(e) => setS({ ...s, pomodoro: { ...s.pomodoro, enabled: e.target.checked } })} /> メモを書く画面にタイマーを出す</label>
+        <div className="row" style={{ marginTop: 8 }}>
+          <div className="field"><label>作業(分)</label><input type="number" min={1} max={120} value={s.pomodoro.work_minutes} onChange={(e) => setS({ ...s, pomodoro: { ...s.pomodoro, work_minutes: Number(e.target.value) || 25 } })} /></div>
+          <div className="field"><label>休憩(分)</label><input type="number" min={1} max={60} value={s.pomodoro.break_minutes} onChange={(e) => setS({ ...s, pomodoro: { ...s.pomodoro, break_minutes: Number(e.target.value) || 5 } })} /></div>
+        </div>
+        <p className="muted">作業が終わると休憩が自動で始まり、休憩が終わったら止まります。要らなければオフにしてください。</p>
       </div>
 
       <div className="card">

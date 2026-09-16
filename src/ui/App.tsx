@@ -10,6 +10,7 @@ import { PapersPage } from "./pages/PapersPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
+import { LessonsPage } from "./pages/LessonsPage";
 import { ImportNotice } from "./components/ImportNotice";
 
 export type Page =
@@ -20,6 +21,7 @@ export type Page =
   | { name: "papers" }
   | { name: "explore" }
   | { name: "usage" }
+  | { name: "lessons" }
   | { name: "settings" };
 
 export interface PageProps {
@@ -35,6 +37,7 @@ const NAV: { page: Page; label: string }[] = [
   { page: { name: "explore" }, label: "論文を探す" },
   { page: { name: "calendar" }, label: "カレンダー" },
   { page: { name: "usage" }, label: "API 使用量" },
+  { page: { name: "lessons" }, label: "講座" },
   { page: { name: "settings" }, label: "設定" },
 ];
 
@@ -87,13 +90,14 @@ export function App() {
     case "papers": body = <PapersPage {...props} />; break;
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;
+    case "lessons": body = <LessonsPage />; break;
     case "settings": body = <SettingsPage {...props} />; break;
   }
 
   return (
     <div className="app">
       <nav className="nav">
-        <div className="brand">One day,<br />One paper</div>
+        <div className="brand">One day,{" "}<br />One paper</div>
         {NAV.map((n) => (
           <button key={n.page.name} className={page.name === n.page.name ? "active" : ""} onClick={() => setPage(n.page)}>
             {n.label}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkTarget, handle, MAX_BYTES } from "./worker";
+import { checkTarget, handle, MAX_BYTES, MAX_POST_BYTES } from "./worker";
 
 const env = { ALLOWED_ORIGINS: "http://localhost:1420, https://oneday.example.com" };
 const ORIGIN = "https://oneday.example.com";
@@ -44,16 +44,61 @@ describe("Origin と メソッド", () => {
   it("ALLOWED_ORIGINS が未設定なら全部断る", async () => {
     expect((await handle(req("https://api.openalex.org/works"), {})).status).toBe(403);
   });
-  it("プリフライトに答える。x-api-key を許可する", async () => {
+  it("プリフライトに答える。x-api-key と authorization を許可する", async () => {
     const r = await handle(req(null, { method: "OPTIONS" }), env);
     expect(r.status).toBe(204);
     expect(r.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     expect(r.headers.get("access-control-allow-headers")).toContain("x-api-key");
+    expect(r.headers.get("access-control-allow-headers")).toContain("authorization");
   });
-  it("GET 以外は 405", async () => {
-    const r = await handle(req("https://api.openalex.org/works", { method: "POST", body: "x" }), env);
-    expect(r.status).toBe(405);
+  it("学術 API への POST、GET/POST 以外は 405", async () => {
+    for (const init of [{ method: "POST", body: "x" }, { method: "PUT", body: "x" }, { method: "DELETE" }]) {
+      const r = await handle(req("https://api.openalex.org/works", init), env);
+      expect(r.status, init.method).toBe(405);
+      expect(r.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("通知の配信先への POST", () => {
+  it("Slack の Webhook へ本文と content-type を渡し、応答をそのまま返す", async () => {
+    fetchMock.mockResolvedValue(upstream("ok", { status: 200, headers: { "content-type": "text/html" } }));
+    const r = await handle(req("https://hooks.slack.com/services/T/B/x", { method: "POST", body: '{"text":"hi"}', headers: { "content-type": "application/json" } }), env);
+    expect(r.status).toBe(200);
+    expect(await r.text()).toBe("ok");
     expect(r.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://hooks.slack.com/services/T/B/x");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe('{"text":"hi"}');
+    expect(sentHeaders().get("content-type")).toBe("application/json");
+    expect(sentHeaders().get("authorization")).toBeNull();
+  });
+  it("LINE へは authorization も渡す。失敗の応答も本文ごと返す", async () => {
+    fetchMock.mockResolvedValue(upstream('{"message":"invalid token"}', { status: 401, headers: { "content-type": "application/json" } }));
+    const r = await handle(
+      req("https://api.line.me/v2/bot/message/push", { method: "POST", body: "{}", headers: { "content-type": "application/json", authorization: "Bearer tok" } }),
+      env,
+    );
+    expect(r.status).toBe(401);
+    expect(await r.text()).toContain("invalid token");
+    expect(sentHeaders().get("authorization")).toBe("Bearer tok");
+  });
+  it("Cookie などは渡さない", async () => {
+    fetchMock.mockResolvedValue(upstream("ok"));
+    await handle(req("https://hooks.slack.com/services/T/B/x", { method: "POST", body: "{}", headers: { cookie: "a=b", "x-api-key": "k" } }), env);
+    expect(sentHeaders().get("cookie")).toBeNull();
+    expect(sentHeaders().get("x-api-key")).toBeNull();
+  });
+  it("大きすぎる本文は 413", async () => {
+    const r = await handle(req("https://hooks.slack.com/services/T/B/x", { method: "POST", body: "x".repeat(MAX_POST_BYTES + 1) }), env);
+    expect(r.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("行き先の検査は GET と同じ", async () => {
+    const r = await handle(req("http://127.0.0.1/", { method: "POST", body: "{}" }), env);
+    expect(r.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

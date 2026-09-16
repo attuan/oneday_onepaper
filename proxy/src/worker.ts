@@ -1,7 +1,9 @@
 // CORS 中継(Cloudflare Workers)。ブラウザ版から学術 API と OA の PDF を取るためだけのもの。
 //
-// - GET だけ。上流へ渡すヘッダは Accept と、Semantic Scholar の x-api-key だけ(Cookie などは渡さない)
+// - 基本は GET だけ。上流へ渡すヘッダは Accept と、Semantic Scholar の x-api-key だけ(Cookie などは渡さない)
 // - 学術 API 以外のホストは、PDF を返したときだけ中継する(汎用のプロキシにしない)
+// - 例外として、通知の配信先(Slack の Webhook と LINE の Messaging API)への POST は本文ごと中継する。
+//   このときだけ content-type と authorization を上流へ渡す
 // - Origin が ALLOWED_ORIGINS に無ければ断る。ブラウザ以外からの利用を防ぐものではない
 //
 // 学術 API の一覧は src-tauri/capabilities/default.json の http 許可と揃えてある。
@@ -21,10 +23,18 @@ export const API_HOSTS = new Set([
   "api.jstage.jst.go.jp",
 ]);
 
+/** POST を中継するホスト(通知の配信先)。src/core/store/backends/web/fetch.ts の NOTIFY_POST_HOSTS と揃える */
+export const NOTIFY_HOSTS = new Set(["hooks.slack.com", "api.line.me"]);
+
 /** ホストごとに、ブラウザから受け取って上流へ渡すヘッダ */
 const PASS_HEADERS: Record<string, string[]> = {
   "api.semanticscholar.org": ["x-api-key"],
+  "hooks.slack.com": ["content-type"],
+  "api.line.me": ["content-type", "authorization"],
 };
+
+/** 通知の本文の上限。通知は短い */
+export const MAX_POST_BYTES = 16 * 1024;
 
 /** 上流の応答から返すヘッダ */
 const KEEP_HEADERS = ["content-type", "content-length", "retry-after"];
@@ -34,8 +44,8 @@ export const MAX_BYTES = 50 * 1024 * 1024;
 function corsHeaders(origin: string): Record<string, string> {
   return {
     "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET, OPTIONS",
-    "access-control-allow-headers": "accept, x-api-key",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "accept, x-api-key, content-type, authorization",
     "access-control-max-age": "86400",
     vary: "Origin",
   };
@@ -99,10 +109,11 @@ export async function handle(request: Request, env: Env, max = MAX_BYTES): Promi
   const origin = allowedOrigin(request.headers.get("origin"), env);
   if (!origin) return reply(403, "この Origin からの利用は許可されていません", null);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(origin) });
-  if (request.method !== "GET") return reply(405, "GET だけ受け付けます", origin);
+  if (request.method !== "GET" && request.method !== "POST") return reply(405, "GET と POST だけ受け付けます", origin);
 
   const target = checkTarget(new URL(request.url).searchParams.get("url"));
   if (typeof target === "string") return reply(400, target, origin);
+  if (request.method === "POST" && !NOTIFY_HOSTS.has(target.hostname)) return reply(405, "POST は通知の配信先(Slack / LINE)にだけ中継します", origin);
 
   const headers = new Headers({ accept: request.headers.get("accept") ?? "*/*" });
   for (const name of PASS_HEADERS[target.hostname] ?? []) {
@@ -110,11 +121,27 @@ export async function handle(request: Request, env: Env, max = MAX_BYTES): Promi
     if (v) headers.set(name, v);
   }
 
+  let body: string | undefined;
+  if (request.method === "POST") {
+    body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > MAX_POST_BYTES) return reply(413, "本文が大きすぎます", origin);
+  }
+
   let upstream: Response;
   try {
-    upstream = await fetch(target.href, { headers, redirect: "follow" });
+    upstream = await fetch(target.href, { method: request.method, headers, body, redirect: "follow" });
   } catch (e) {
     return reply(502, `取得に失敗しました: ${e instanceof Error ? e.message : e}`, origin);
+  }
+
+  if (request.method === "POST") {
+    // 通知の配信先はリダイレクトしないので、行き先の再検査は要らない。応答は本文ごと返す(LINE はエラーの JSON を返す)
+    const out = new Headers(corsHeaders(origin));
+    for (const name of KEEP_HEADERS) {
+      const v = upstream.headers.get(name);
+      if (v) out.set(name, v);
+    }
+    return new Response(upstream.body ? limited(upstream.body, max) : null, { status: upstream.status, headers: out });
   }
 
   // リダイレクトした後の行き先で判断する

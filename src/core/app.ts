@@ -1,10 +1,13 @@
 // アプリの操作をまとめる層。UI はここだけを呼ぶ
 
-import type { DayLog, GradeOutput, Memo, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
+import type { DayLog, GradeOutput, Memo, NotifyChannel, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
 import { logicalDate } from "@/core/schedule/logicalDay";
 import { judgeMissingDays } from "@/core/schedule/judge";
 import { markRead, newPaper, queue, removePaper, reorderQueue, skipPaper, todaysPaper } from "@/core/papers/queue";
 import { csvToPapers } from "@/core/papers/csv";
+import { bibtexToPapers, papersToBibtex } from "@/core/papers/bibtex";
+import { sendVia } from "@/core/notify";
+import { LINE_TOKEN_SECRET, SLACK_WEBHOOK_SECRET } from "@/core/notifyChannels";
 import { countMemoChars, memoTemplate } from "@/core/memo/format";
 import { judgeCompletion } from "@/core/memo/completion";
 import { AnthropicProvider } from "@/core/llm/anthropic";
@@ -131,6 +134,22 @@ export async function importCsv(state: AppState, text: string): Promise<{ state:
   const { papers: inputs, errors } = csvToPapers(text);
   const r = await addMany(state, inputs);
   return { ...r, errors: [...errors, ...r.errors] };
+}
+
+/** BibTeX(ファイルか貼り付け)から追加(仕様 4.2 / v2)。元のエントリは bibtex 列に残す */
+export async function importBibtex(state: AppState, text: string): Promise<{ state: AppState; added: number; errors: string[] }> {
+  const { papers: inputs, errors } = bibtexToPapers(text);
+  const r = await addMany(state, inputs);
+  return { ...r, errors: [...errors, ...r.errors] };
+}
+
+/** リスト(外したものを除く)を BibTeX にして手元に保存する。どこに置いたかを文で返す */
+export async function exportBibtex(state: AppState, which: "all" | "queue" | "read" = "all"): Promise<string> {
+  const papers = state.papers.filter((p) => p.status !== "removed" && (which === "all" || (which === "queue" ? p.status === "unread" : p.status === "read")));
+  if (!papers.length) throw new Error("書き出す論文がありません");
+  const text = papersToBibtex(papers);
+  const where = await saveFile(`papers-${which}-${state.today}.bib`, new TextEncoder().encode(text));
+  return `${where}(${papers.length} 件)`;
 }
 
 /** DOI の羅列から書誌情報を引いて追加(仕様 4.2) */
@@ -372,6 +391,30 @@ export async function getSemanticScholarKey(): Promise<string | null> {
 export async function setSemanticScholarKey(key: string): Promise<void> {
   if (key.trim()) await secret.set(S2_KEY_SECRET, key.trim());
   else await secret.delete(S2_KEY_SECRET);
+}
+
+export async function getSlackWebhook(): Promise<string | null> {
+  return secret.get(SLACK_WEBHOOK_SECRET);
+}
+
+export async function setSlackWebhook(url: string): Promise<void> {
+  if (url.trim()) await secret.set(SLACK_WEBHOOK_SECRET, url.trim());
+  else await secret.delete(SLACK_WEBHOOK_SECRET);
+}
+
+export async function getLineToken(): Promise<string | null> {
+  return secret.get(LINE_TOKEN_SECRET);
+}
+
+export async function setLineToken(token: string): Promise<void> {
+  if (token.trim()) await secret.set(LINE_TOKEN_SECRET, token.trim());
+  else await secret.delete(LINE_TOKEN_SECRET);
+}
+
+/** 設定画面の「テスト送信」。保存前の設定(LINE の送信先など)で送る */
+export async function sendTestNotification(settings: Settings, channel: NotifyChannel): Promise<void> {
+  const paper = todaysPaper((await loadPapers(settings.data_dir)) ?? []);
+  await sendVia(channel, settings, "テスト通知(One day, One paper)", paper ? `今日の論文: ${paper.title}` : "この配信先に通知が届きます");
 }
 
 // ---- データの書き出し・取り込み ----

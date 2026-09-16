@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PageProps } from "../App";
-import { addPaper, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
+import { addPaper, exportBibtex, importBibtex, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
@@ -14,6 +14,8 @@ export function PapersPage({ state, setState, go }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showDoi, setShowDoi] = useState(false);
   const [doiText, setDoiText] = useState("");
+  const [showBib, setShowBib] = useState(false);
+  const [bibText, setBibText] = useState("");
   const [busy, setBusy] = useState(false);
   const [criterion, setCriterion] = useState(CRITERIA[0]);
   const [reasons, setReasons] = useState<Map<string, string>>(new Map());
@@ -48,6 +50,32 @@ export function PapersPage({ state, setState, go }: PageProps) {
     }
   };
 
+  const onBibtex = async (text: string) => {
+    setBusy(true);
+    try {
+      const r = await importBibtex(state, text);
+      setState(r.state);
+      setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+      if (r.added) {
+        setBibText("");
+        setShowBib(false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onExportBibtex = async (which: "all" | "queue" | "read") => {
+    setBusy(true);
+    try {
+      setMsg([`BibTeX を書き出しました: ${await exportBibtex(state, which)}`]);
+    } catch (e) {
+      setMsg(["", `書き出しに失敗: ${e instanceof Error ? e.message : e}`]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onLlmReorder = async () => {
     setBusy(true);
     try {
@@ -72,10 +100,34 @@ export function PapersPage({ state, setState, go }: PageProps) {
             CSV を読み込む
             <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && onCsv(e.target.files[0])} />
           </label>
+          <button className="btn secondary" onClick={() => setShowBib((v) => !v)}>BibTeX</button>
           <button className="btn secondary" onClick={() => setShowDoi((v) => !v)}>DOI で追加</button>
           <button className="btn" onClick={() => setShowAdd((v) => !v)}>手入力で追加</button>
         </div>
       </div>
+      {showBib && (
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>BibTeX を読み込む</h2>
+          <div className="field">
+            <label>.bib ファイルを選ぶか、エントリを貼り付け。元のエントリは論文ごとに保存され、書き出すときにそのまま使われます</label>
+            <textarea rows={5} value={bibText} onChange={(e) => setBibText(e.target.value)} placeholder={"@inproceedings{vaswani2017attention,\n  title = {Attention Is All You Need},\n  ...\n}"} />
+          </div>
+          <div className="row">
+            <button className="btn" disabled={busy || !bibText.trim()} onClick={() => onBibtex(bibText)}>{busy ? "取り込み中…" : "貼り付けた内容を追加"}</button>
+            <label className="btn secondary">
+              .bib ファイルを読み込む
+              <input type="file" accept=".bib,.bibtex,text/x-bibtex" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) await onBibtex(await f.text()); e.target.value = ""; }} />
+            </label>
+          </div>
+          <h2>BibTeX を書き出す</h2>
+          <p className="muted">外した論文は含めません。取り込み時のエントリがある論文はそのまま、無い論文は書誌情報から生成します。</p>
+          <div className="row">
+            <button className="btn secondary small" disabled={busy} onClick={() => onExportBibtex("all")}>すべて</button>
+            <button className="btn secondary small" disabled={busy || q.length === 0} onClick={() => onExportBibtex("queue")}>キューだけ({q.length})</button>
+            <button className="btn secondary small" disabled={busy || read.length === 0} onClick={() => onExportBibtex("read")}>読了だけ({read.length})</button>
+          </div>
+        </div>
+      )}
       {msg.length > 0 && <div className="card">{msg.map((m, i) => m && <div key={i} className={i === 0 ? "ok" : "error"}>{m}</div>)}</div>}
       {showDoi && (
         <div className="card">
@@ -94,7 +146,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
           }}
         />
       )}
-      <p className="muted">CSV の列: title(必須), authors(「;」区切り), year, venue, doi, url, pdf_url, abstract, reason</p>
+      <p className="muted">CSV の列: title(必須), authors(「;」区切り), year, venue, doi, url, pdf_url, abstract, reason, bibtex</p>
 
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>キュー({q.length})</h2>

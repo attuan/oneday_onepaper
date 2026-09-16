@@ -7,6 +7,7 @@ import { judgeCompletion } from "@/core/memo/completion";
 import { formatUsd } from "@/core/usage/cost";
 import type { PaperContext } from "@/core/llm/tasks";
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
+import { Pomodoro } from "../components/Pomodoro";
 
 export function EditorPage({ state, setState, go, paperId }: PageProps & { paperId: string }) {
   const paper = state.papers.find((p) => p.id === paperId);
@@ -78,6 +79,7 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
         />
       </div>
       <div className="side">
+        {state.settings.pomodoro.enabled && <Pomodoro config={state.settings.pomodoro} />}
         <div className="card">
           <div className="muted">本文の文字数</div>
           <p className="title">{chars} / {completion.required}</p>

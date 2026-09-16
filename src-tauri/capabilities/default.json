@@ -41,6 +41,12 @@
         },
         {
           "url": "https://eutils.ncbi.nlm.nih.gov/*"
+        },
+        {
+          "url": "https://hooks.slack.com/*"
+        },
+        {
+          "url": "https://api.line.me/*"
         }
       ]
     }

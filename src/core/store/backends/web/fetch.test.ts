@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proxied, shouldProxy } from "./fetch";
+import { isDirectSlackPost, proxied, shouldProxy } from "./fetch";
 
 const PAGE = "https://oneday.example.com";
 
@@ -11,6 +11,11 @@ describe("shouldProxy", () => {
   it("POST は回さない(Anthropic は直接呼べる)", () => {
     expect(shouldProxy("https://api.anthropic.com/v1/messages", "POST", PAGE)).toBe(false);
   });
+  it("通知の配信先(Slack / LINE)への POST だけは回す", () => {
+    expect(shouldProxy("https://hooks.slack.com/services/T/B/x", "POST", PAGE)).toBe(true);
+    expect(shouldProxy("https://api.line.me/v2/bot/message/push", "post", PAGE)).toBe(true);
+    expect(shouldProxy("https://hooks.slack.com/services/T/B/x", "PUT", PAGE)).toBe(false);
+  });
   it("同じオリジン・相対 URL・ローカル(Ollama)は回さない", () => {
     expect(shouldProxy(`${PAGE}/assets/sql-wasm.wasm`, "GET", PAGE)).toBe(false);
     expect(shouldProxy("/assets/x.js", "GET", PAGE)).toBe(false);
@@ -21,6 +26,14 @@ describe("shouldProxy", () => {
   it("http(s) 以外は回さない", () => {
     expect(shouldProxy("blob:https://oneday.example.com/abc", "GET", PAGE)).toBe(false);
     expect(shouldProxy("data:text/plain,hi", "GET", PAGE)).toBe(false);
+  });
+});
+
+describe("isDirectSlackPost", () => {
+  it("Slack の Webhook への POST だけ", () => {
+    expect(isDirectSlackPost("https://hooks.slack.com/services/T/B/x", "POST", PAGE)).toBe(true);
+    expect(isDirectSlackPost("https://hooks.slack.com/services/T/B/x", "GET", PAGE)).toBe(false);
+    expect(isDirectSlackPost("https://api.line.me/v2/bot/message/push", "POST", PAGE)).toBe(false);
   });
 });
 

@@ -9,10 +9,19 @@ fn expand(p: &str) -> PathBuf {
     PathBuf::from(p)
 }
 
+/// 既定のデータフォルダ(仕様 4.1)。デスクトップは ~/Documents、モバイルはアプリのサンドボックス内
 #[tauri::command]
-pub fn default_data_dir() -> String {
-    let base = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_else(|| PathBuf::from("."));
-    base.join("OneDayOnePaper").to_string_lossy().to_string()
+pub fn default_data_dir(app: tauri::AppHandle) -> String {
+    use tauri::Manager;
+    let base = if cfg!(desktop) {
+        dirs::document_dir().or_else(dirs::home_dir)
+    } else {
+        app.path().document_dir().ok().or_else(|| app.path().app_data_dir().ok())
+    };
+    base.unwrap_or_else(|| PathBuf::from("."))
+        .join("OneDayOnePaper")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tauri::command]
