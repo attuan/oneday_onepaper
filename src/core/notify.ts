@@ -1,6 +1,6 @@
 // 通知(仕様 10)。トレイ常駐中に JS のタイマーから呼ぶ。朝・夜・最終通知の 3 種類
 
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { notifier } from "@/core/store/backend";
 import type { Paper, Settings } from "@/core/types";
 import { boundaryEnd, isRestDay } from "@/core/schedule/logicalDay";
 import { getMeta, setMeta } from "@/core/store/db";
@@ -48,8 +48,8 @@ export function dueNotifications(input: NotifyInput): { key: string; title: stri
 
 export async function ensureNotificationPermission(): Promise<boolean> {
   try {
-    let granted = await isPermissionGranted();
-    if (!granted) granted = (await requestPermission()) === "granted";
+    let granted = await notifier.isPermissionGranted();
+    if (!granted) granted = await notifier.requestPermission();
     return granted;
   } catch {
     return false;
@@ -65,7 +65,7 @@ export async function runNotifications(input: NotifyInput): Promise<void> {
   for (const n of due) {
     const k = `notified:${n.key}`;
     if (await getMeta(k)) continue;
-    sendNotification({ title: n.title, body: n.body });
+    await notifier.send(n.title, n.body);
     await setMeta(k, input.now.toISOString());
   }
 }

@@ -29,11 +29,14 @@
 
 設計の経緯は [docs/design-questions.md](docs/design-questions.md)、仕様は [docs/spec.md](docs/spec.md)。
 
+デスクトップ版(Tauri)とブラウザ版の 2 つがあり、`src/core` と `src/ui` は共通。
+違うのはファイル・DB・通知などを受け持つ `src/core/store/backends/` だけで、起動時に自動で選ばれる。
+
 ### 必要なもの
 
 - Node.js (LTS)
-- Rust (rustup)
-- macOS: Xcode Command Line Tools
+- Rust (rustup) — デスクトップ版だけ
+- macOS: Xcode Command Line Tools — デスクトップ版だけ
 
 この Mac では Node を `~/.local/node`、Rust を `~/.cargo` に入れてある。シェルで使うには PATH に追加する:
 
@@ -46,11 +49,80 @@ export PATH="$HOME/.local/node/bin:$HOME/.cargo/bin:$PATH"
 ```sh
 npm install
 npm run tauri dev      # デスクトップアプリとして起動
-npm test               # ロジックのユニットテスト
+npm run dev            # ブラウザ版。http://localhost:1420 を開く
+npm test               # ユニットテスト(src/ と proxy/)
 npm run typecheck
 ```
 
 初回の `tauri dev` は Rust の依存をビルドするため数分かかる。
+
+## ブラウザ版
+
+### 動く環境
+
+- Chrome / Edge、Safari 17 以降、Firefox 111 以降(OPFS を使うため)
+- HTTPS か localhost で開くこと。`file://` や素の HTTP では OPFS が使えない
+
+### デスクトップ版との違い
+
+| | デスクトップ版 | ブラウザ版 |
+|---|---|---|
+| データ | `~/Documents/OneDayOnePaper/` | ブラウザ内(OPFS)。**サイトデータを消すと消える** |
+| API キー | OS のキーチェーン | localStorage(暗号化なし) |
+| 通知 | 常駐して出す | **タブを開いている間だけ** |
+| 学術 API | すべて直接 | 一部は CORS 中継が要る(下記) |
+| PDF の本文抽出 | Rust(pdf-extract) | pdf.js |
+
+ブラウザ版のデータは端末とブラウザごとに別になる。設定画面の「書き出す」で定期的に ZIP にしておくこと。
+
+### CORS 中継(proxy/)
+
+ブラウザからは CORS を許可していない API を呼べない。2026-09-16 に確認した状況:
+
+| 行き先 | 中継なしで |
+|---|---|
+| OpenAlex / Crossref / PubMed / CiNii Research | 通る |
+| arXiv の PDF(arxiv.org/pdf) | 通る |
+| Anthropic API | 通る(SDK が `anthropic-dangerous-direct-browser-access` を付ける) |
+| arXiv API(export.arxiv.org) / J-STAGE | **通らない** |
+| Semantic Scholar | 未確認(キーなしでは 429 が返った) |
+| 出版社・リポジトリの PDF | 行き先次第 |
+
+`proxy/` の Cloudflare Worker を置き、ビルド時に `VITE_PROXY_BASE` を渡すと、
+別オリジンへの GET がすべて中継経由になる(POST とローカルの Ollama は直接のまま)。
+中継は学術 API のほかは PDF しか通さず、Origin が `ALLOWED_ORIGINS` に無いリクエストは断る。
+
+```sh
+cd proxy
+# wrangler.toml の ALLOWED_ORIGINS に、ブラウザ版を置く URL を足す
+npx wrangler@4 login
+npx wrangler@4 deploy          # https://oneday-onepaper-proxy.<アカウント>.workers.dev が出る
+cd ..
+echo 'VITE_PROXY_BASE=https://oneday-onepaper-proxy.<アカウント>.workers.dev' > .env.local
+```
+
+Ollama をブラウザ版から使うときは、Ollama 側で `OLLAMA_ORIGINS` にブラウザ版の URL を入れておく。
+
+### 公開
+
+```sh
+npm run build                  # dist/ に静的ファイルができる
+```
+
+`dist/` を Cloudflare Pages / Netlify / Vercel などに置けばよい。サーバーは要らない。
+GitHub Pages のようにサブパス(`/リポジトリ名/`)に置くときは `npx vite build --base=/リポジトリ名/` でビルドする。
+
+### デスクトップ版からの移行
+
+1. デスクトップ版の 設定 → データ → 「書き出す」で ZIP を作る(`~/Downloads` に保存される)
+2. ブラウザ版の 設定 → データ → 「取り込む」でその ZIP を選ぶ
+3. API キーは移らないので、ブラウザ版の設定画面で入れ直す
+
+データフォルダを手で圧縮しても取り込めるが、その場合は**先にデスクトップ版を終了する**こと。
+起動中は最近の記録が `state.sqlite-wal` に残っていて、`state.sqlite` だけでは欠けるため。
+逆向き(ブラウザ版 → デスクトップ版)も同じ手順で、書き出した ZIP をデスクトップ版で取り込む。
+
+取り込むと今のデータは置き換わる。置き換える前の状態はデータフォルダの `backups/` に自動で書き出される。
 
 ### 構成
 
@@ -61,13 +133,21 @@ src/core/     本体ロジック(Tauri 非依存。テスト可能)
   memo/       メモ形式・読了判定
   llm/        プロバイダ抽象層(Anthropic / Ollama)・要約・採点
   usage/      単価表・概算
-  store/      Tauri コマンド経由のファイル・SQLite・キーチェーン
+  store/      データの保存
+    backend.ts   OS 境界の interface(ファイル・SQLite・キーチェーン・通知・fetch・PDF)
+    backends/    その実装。@tauri-apps を import するのは tauri.ts だけ
+      tauri.ts   デスクトップ版
+      web/       ブラウザ版(OPFS・sql.js・pdf.js)
+      memory.ts  テスト用
+    install.ts   起動時にどの実装を使うか決める
+  archive.ts  データの書き出し・取り込み(ZIP)
   app.ts      UI から呼ぶ操作
 src/ui/       React 画面
 src-tauri/    Rust(ファイル、SQLite、キーチェーンのみ)
+proxy/        ブラウザ版の CORS 中継(Cloudflare Workers)
 ```
 
-データは `~/Documents/OneDayOnePaper/` に置かれる(設定で変更可)。
+デスクトップ版のデータは `~/Documents/OneDayOnePaper/` に置かれる(設定で変更可)。ブラウザ版は OPFS の中に同じ並びで置く。
 メモは `memos/*.md`、論文リストは `papers.json`、記録は `state.sqlite`、保存した PDF は `pdfs/`。
 
 ### 実装状況
@@ -76,7 +156,8 @@ src-tauri/    Rust(ファイル、SQLite、キーチェーンのみ)
 - v1: 論文を探す(OpenAlex / Semantic Scholar / Crossref / arXiv / PubMed / CiNii Research / J-STAGE から選んで検索し、
   LLM がクエリ生成と順位付け)、DOI / arXiv ID 取り込み、OA PDF の保存と全文抽出、
   LLM によるキュー並べ替え、メニューバー常駐と macOS 通知
-- v2(未): Slack / LINE 配信、BibTeX、講座、ポモドーロ、モバイル
+- Web: ブラウザ版(OPFS + sql.js + pdf.js)、CORS 中継、データの書き出し・取り込み
+- v2(未): Slack / LINE 配信、BibTeX、講座、ポモドーロ、モバイル(ブラウザ版も狭い画面には未対応)
 - 削除: 死刑機能(囚人アバター・肉・墓地・命乞い)は 2026-09-15 に取り下げた。論文を量で追う仕掛けは本筋でないと判断
 
-ウィンドウを閉じてもアプリは終了せず、メニューバーのアイコンから「開く」「終了」を選べる。
+デスクトップ版はウィンドウを閉じても終了せず、メニューバーのアイコンから「開く」「終了」を選べる。

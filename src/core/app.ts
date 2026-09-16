@@ -1,7 +1,5 @@
 // アプリの操作をまとめる層。UI はここだけを呼ぶ
 
-import { invoke } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { DayLog, GradeOutput, Memo, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
 import { logicalDate } from "@/core/schedule/logicalDay";
 import { judgeMissingDays } from "@/core/schedule/judge";
@@ -14,7 +12,9 @@ import { OllamaProvider } from "@/core/llm/ollama";
 import type { LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
-import { fs, joinPath, secret } from "@/core/store/tauri";
+import { appFetch, backendName, fs, joinPath, pdf, saveFile, secret } from "@/core/store/backend";
+import { exportArchive, importArchive, type ImportReport } from "@/core/archive";
+export { PartialImportError, type ImportReport } from "@/core/archive";
 import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/settings";
 import { loadPapers, savePapers } from "@/core/store/papers";
 import { findMemoForPaper, listMemos, readsByDate, saveMemo } from "@/core/store/memos";
@@ -141,7 +141,7 @@ export async function importDois(state: AppState, text: string): Promise<{ state
   const errors: string[] = [];
   for (const doi of dois) {
     try {
-      const c = await lookupDoi(doi, tauriFetch);
+      const c = await lookupDoi(doi, appFetch);
       if (c) inputs.push({ ...c, source: "import" });
       else errors.push(`見つかりません: ${doi}`);
     } catch (e) {
@@ -223,7 +223,7 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
       const got: Candidate[] = [];
       for (const q of qs) {
         try {
-          got.push(...(await searchSource(src.id, q, tauriFetch, { perPage, semanticScholarKey: s2Key })));
+          got.push(...(await searchSource(src.id, q, appFetch, { perPage, semanticScholarKey: s2Key })));
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           const hint = /\b429\b/.test(msg) ? (src.id === "semanticscholar" ? "。レート制限です。設定画面で API キーを入れるか、少し待ってから再検索してください" : "。レート制限です。少し待ってから再検索してください") : "";
@@ -298,7 +298,7 @@ async function tryDownloadPdf(dataDir: string, paper: Paper): Promise<void> {
   try {
     const dest = pdfPath(dataDir, paper);
     if (await fs.exists(dest)) return;
-    await invoke("download_file", { url: paper.pdf_url, dest });
+    await pdf.download(paper.pdf_url, dest);
   } catch {
     /* OA でないなど。失敗は無視(仕様 6) */
   }
@@ -307,14 +307,14 @@ async function tryDownloadPdf(dataDir: string, paper: Paper): Promise<void> {
 export async function downloadPdf(state: AppState, paper: Paper): Promise<string> {
   if (!paper.pdf_url) throw new Error("PDF の URL がありません");
   const dest = pdfPath(state.settings.data_dir, paper);
-  await invoke("download_file", { url: paper.pdf_url, dest });
+  await pdf.download(paper.pdf_url, dest);
   return dest;
 }
 
 export async function extractFulltext(state: AppState, paper: Paper): Promise<{ state: AppState; text: string; tokens: number }> {
   const path = pdfPath(state.settings.data_dir, paper);
   if (!(await fs.exists(path))) await downloadPdf(state, paper);
-  const text = await invoke<string>("extract_pdf_text", { path });
+  const text = await pdf.extractText(path);
   if (text.trim().length < 200) throw new Error("本文が抽出できませんでした(スキャン PDF など)");
   const tokens = roughTokenCount(text);
   const st = await updatePaper(state, paper.id, { fulltext_tokens: tokens });
@@ -374,15 +374,36 @@ export async function setSemanticScholarKey(key: string): Promise<void> {
   else await secret.delete(S2_KEY_SECRET);
 }
 
+// ---- データの書き出し・取り込み ----
+
+/** デスクトップ版かブラウザ版か。画面の文言を変えるのに使う */
+export function platform(): "tauri" | "web" {
+  return backendName() ?? "web";
+}
+
+export async function exportData(state: AppState, includePdfs: boolean): Promise<string> {
+  const r = await exportArchive(state.settings.data_dir, { includePdfs });
+  const where = await saveFile(r.fileName, r.data);
+  return `${where}(メモ ${r.counts.memos} 件${includePdfs ? `、PDF ${r.counts.pdfs} 件` : ""})`;
+}
+
+/**
+ * 現在のデータを置き換える。成功したら画面を読み込み直すこと。
+ * PartialImportError のときも DB が閉じているので同じ。それ以外のエラーでは何も変わっていない
+ */
+export async function importData(state: AppState, file: Blob): Promise<ImportReport> {
+  return importArchive(state.settings.data_dir, new Uint8Array(await file.arrayBuffer()));
+}
+
 // ---- LLM ----
 
 export async function makeProvider(settings: Settings): Promise<LlmProvider> {
   if (settings.llm.provider === "ollama") {
-    return new OllamaProvider({ model: settings.llm.model, baseUrl: settings.llm.base_url ?? undefined, fetch: tauriFetch });
+    return new OllamaProvider({ model: settings.llm.model, baseUrl: settings.llm.base_url ?? undefined, fetch: appFetch });
   }
   const apiKey = await getApiKey();
   if (!apiKey) throw new Error("Anthropic の API キーが設定されていません。設定画面で入力してください");
-  return new AnthropicProvider({ apiKey, model: settings.llm.model, fetch: tauriFetch });
+  return new AnthropicProvider({ apiKey, model: settings.llm.model, fetch: appFetch });
 }
 
 export interface AiCostEstimate {

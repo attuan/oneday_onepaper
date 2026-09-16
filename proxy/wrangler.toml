@@ -1,0 +1,8 @@
+# ブラウザ版の CORS 中継。デプロイ手順は README の「Web 版」を参照
+name = "oneday-onepaper-proxy"
+main = "src/worker.ts"
+compatibility_date = "2026-09-01"
+
+[vars]
+# ブラウザ版を置く場所を足す(カンマ区切り、末尾のスラッシュなし)
+ALLOWED_ORIGINS = "http://localhost:1420"

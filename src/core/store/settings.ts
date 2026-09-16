@@ -1,11 +1,10 @@
-import { appConfigDir } from "@tauri-apps/api/path";
 import { DEFAULT_SETTINGS, type Settings } from "@/core/types";
-import { fs, joinPath } from "./tauri";
+import { fs, joinPath } from "./backend";
 
 // appConfigDir/config.json = { data_dir } → data_dir/settings.json
 
 async function pointerPath(): Promise<string> {
-  const dir = await appConfigDir();
+  const dir = await fs.appConfigDir();
   return joinPath(dir, "config.json");
 }
 

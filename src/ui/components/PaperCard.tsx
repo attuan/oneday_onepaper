@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { opener } from "@/core/store/backend";
 import type { Paper } from "@/core/types";
 
 export function PaperMeta({ paper }: { paper: Paper }) {
@@ -15,7 +15,7 @@ export function PaperLinks({ paper }: { paper: Paper }) {
   return (
     <div className="row" style={{ marginTop: 8 }}>
       {links.map((l) => (
-        <button key={l.url} className="link" onClick={() => openUrl(l.url)}>
+        <button key={l.url} className="link" onClick={() => opener.url(l.url)}>
           {l.label} ↗
         </button>
       ))}

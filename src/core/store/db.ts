@@ -1,7 +1,7 @@
 // state.sqlite(仕様 4.4)。papers.json と memos/ から再構築できるインデックス
 
 import type { DayLog, GradeOutput, LlmUsageRow, SummaryOutput } from "@/core/types";
-import { db, joinPath } from "./tauri";
+import { db, joinPath } from "./backend";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (

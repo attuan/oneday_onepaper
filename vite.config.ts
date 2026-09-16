@@ -14,5 +14,5 @@ export default defineConfig({
     host: host || false,
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  test: { include: ["src/**/*.test.ts"] },
+  test: { include: ["src/**/*.test.ts", "proxy/src/**/*.test.ts"] },
 });

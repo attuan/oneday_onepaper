@@ -33,6 +33,11 @@ UI の細部は対話しながら変える前提なので、ここでは「変�
   - TypeScript: UI、アプリロジック(スケジューリング、読了判定)、LLM 呼び出し、学術 API 呼び出し
   - Rust(Tauri コマンド): ファイル読み書き、SQLite、OS 通知、PDF テキスト抽出、トレイ常駐、スケジュール起動
 - 将来のモバイル化のため、Rust 側は「OS の代わりに何かをする」ものに限定する。
+- その境界は `src/core/store/backend.ts` の `Backend` interface に置く。Tauri 実装のほかにブラウザ実装
+  (OPFS・sql.js・pdf.js・localStorage・Web Notifications)があり、起動時に選ぶ(2026-09-16 追加)。
+  ブラウザ版は常駐できないので、通知はタブを開いている間だけ出る(10.4 の常駐はデスクトップ版のみ)。
+- データの書き出し・取り込みは 4.1 のフォルダをそのまま ZIP にしたもの(`src/core/archive.ts`)。
+  API キーは含めない。取り込みは置き換えで、置き換える前の状態を `backups/` に書き出す。
 
 ```
 src/

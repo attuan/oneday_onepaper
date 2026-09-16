@@ -10,6 +10,7 @@ import { PapersPage } from "./pages/PapersPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
+import { ImportNotice } from "./components/ImportNotice";
 
 export type Page =
   | { name: "home" }
@@ -104,7 +105,10 @@ export function App() {
           {state.today}
         </div>
       </nav>
-      <main className="main">{body}</main>
+      <main className="main">
+        <ImportNotice />
+        {body}
+      </main>
     </div>
   );
 }
