@@ -105,25 +105,36 @@ export type TaskResult<T> = { output: T; res: LlmResponse };
 
 const RECOMMEND_SCHEMA = {
   type: "object",
-  properties: { queries: { type: "array", items: { type: "string" } } },
-  required: ["queries"],
+  properties: { queries: { type: "array", items: { type: "string" } }, queries_ja: { type: "array", items: { type: "string" } } },
+  required: ["queries", "queries_ja"],
   additionalProperties: false,
 };
 
-export function buildRecommendRequest(keywords: string, context: string, language: string) {
+export interface RecommendOutput {
+  /** 英語の学術 API(OpenAlex, Semantic Scholar, arXiv など)向け */
+  queries: string[];
+  /** 日本語の学術 API(CiNii, J-STAGE)向け。日本語ソースを使わないときは空 */
+  queries_ja: string[];
+}
+
+export function buildRecommendRequest(keywords: string, context: string, language: string, japanese = false) {
+  const ja = japanese
+    ? "さらに、日本語の学術検索(CiNii Research, J-STAGE)に投げる日本語の検索クエリも 2〜4 個、queries_ja に作ってください。日本語の分野用語をそのまま使い、英語の直訳は避けてください。"
+    : "queries_ja は空配列にしてください。";
   return {
-    system:
-      "あなたは研究者の文献調査を助ける司書です。ユーザーの興味に基づき、学術検索エンジン(OpenAlex)に投げる英語の検索クエリを 4〜6 個作ってください。基礎となる古典・サーベイ・最近の代表的手法が混ざるように、観点を変えたクエリにしてください。各クエリは 2〜6 語。",
+    system: `あなたは研究者の文献調査を助ける司書です。ユーザーの興味に基づき、英語の学術検索エンジン(OpenAlex, Semantic Scholar, arXiv など)に投げる英語の検索クエリを 4〜6 個、queries に作ってください。基礎となる古典・サーベイ・最近の代表的手法が混ざるように、観点を変えたクエリにしてください。各クエリは 2〜6 語。${ja}`,
     user: `興味のあるキーワード: ${keywords}${context ? `\n補足: ${context}` : ""}\n\n出力言語(クエリ以外の説明は不要): ${language}`,
     schema: RECOMMEND_SCHEMA,
-    maxTokens: 512,
+    maxTokens: 768,
     effort: "low" as const,
   };
 }
 
-export async function runRecommend(llm: LlmProvider, keywords: string, context: string, language: string): Promise<TaskResult<{ queries: string[] }>> {
-  const res = await llm.complete(buildRecommendRequest(keywords, context, language));
-  return { output: parseJsonLoose<{ queries: string[] }>(res.text), res };
+export async function runRecommend(llm: LlmProvider, keywords: string, context: string, language: string, japanese = false): Promise<TaskResult<RecommendOutput>> {
+  const res = await llm.complete(buildRecommendRequest(keywords, context, language, japanese));
+  const raw = parseJsonLoose<Partial<RecommendOutput>>(res.text);
+  const clean = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => String(x).trim()).filter(Boolean) : []);
+  return { output: { queries: clean(raw.queries), queries_ja: clean(raw.queries_ja) }, res };
 }
 
 // ---- rank: 候補を順位付けし「読むべき理由」を付ける ----

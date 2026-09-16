@@ -50,6 +50,7 @@ export function mergeSettings(dataDir: string, stored: Partial<Settings>): Setti
     data_dir: dataDir,
     llm: { ...DEFAULT_SETTINGS.llm, ...(stored.llm ?? {}) },
     grace: { ...DEFAULT_SETTINGS.grace, ...(stored.grace ?? {}) },
+    search: { ...DEFAULT_SETTINGS.search, ...(stored.search ?? {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(stored.notifications ?? {}) },
   };
 }

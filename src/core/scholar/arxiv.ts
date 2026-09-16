@@ -1,6 +1,6 @@
 // arXiv API(Atom)。OpenAlex が arXiv の DOI(10.48550/arXiv.xxxx)を持っていないためのフォールバック
 
-import type { Candidate } from "./openalex";
+import type { Candidate, FetchFn } from "./types";
 
 export const ARXIV_DOI_RE = /^10\.48550\/arxiv\.(.+)$/i;
 export const ARXIV_ID_RE = /(?:arxiv:)?(\d{4}\.\d{4,5})(v\d+)?/i;
@@ -45,13 +45,28 @@ export function parseArxivFeed(xml: string): Candidate[] {
       pdf_url: pdfm ? pdfm[1].replace(/^http:/, "https:") : `https://arxiv.org/pdf/${id}`,
       abstract: unescape((tag(e, "summary") ?? "").replace(/\s+/g, " ")),
       cited_by: 0,
+      sources: ["arxiv"],
     });
   }
   return out;
 }
 
-export async function lookupArxiv(arxivId: string, fetchFn: typeof globalThis.fetch): Promise<Candidate | null> {
+export async function lookupArxiv(arxivId: string, fetchFn: FetchFn): Promise<Candidate | null> {
   const res = await fetchFn(`https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`);
   if (!res.ok) throw new Error(`arXiv ${res.status}`);
   return parseArxivFeed(await res.text())[0] ?? null;
+}
+
+/** arXiv のキーワード検索。各語を all: で AND 結合する(語順に縛られない) */
+export function arxivSearchQuery(query: string): string {
+  const words = query.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}\-_.]/gu, "")).filter(Boolean);
+  return words.map((w) => `all:${w}`).join(" AND ");
+}
+
+export async function searchArxiv(query: string, fetchFn: FetchFn, max = 15): Promise<Candidate[]> {
+  const q = arxivSearchQuery(query);
+  if (!q) return [];
+  const res = await fetchFn(`https://export.arxiv.org/api/query?search_query=${encodeURIComponent(q)}&max_results=${max}&sortBy=relevance`);
+  if (!res.ok) throw new Error(`arXiv ${res.status}`);
+  return parseArxivFeed(await res.text());
 }

@@ -1,10 +1,11 @@
 // OpenAlex クライアント(仕様 8)。キー不要。書誌情報はここから取り、LLM には判断だけさせる
 
-import type { Paper } from "@/core/types";
 import { normalizeDoi } from "@/core/papers/queue";
 import { ARXIV_ID_RE, arxivIdFromDoi, lookupArxiv } from "./arxiv";
+import type { Candidate, FetchFn } from "./types";
 
-export type Candidate = Partial<Paper> & { title: string; id: string; cited_by: number };
+export type { Candidate } from "./types";
+export { dedupe } from "./sources";
 
 interface OaWork {
   id: string;
@@ -19,8 +20,6 @@ interface OaWork {
   abstract_inverted_index?: Record<string, number[]> | null;
   cited_by_count?: number;
 }
-
-type FetchFn = typeof globalThis.fetch;
 
 const BASE = "https://api.openalex.org";
 const UA = "mailto=onedayonepaper@example.invalid"; // polite pool 用。個人情報は送らない
@@ -51,6 +50,7 @@ export function workToCandidate(w: OaWork): Candidate | null {
     pdf_url: w.best_oa_location?.pdf_url ?? w.open_access?.oa_url ?? null,
     abstract: rebuildAbstract(w.abstract_inverted_index),
     cited_by: w.cited_by_count ?? 0,
+    sources: ["openalex"],
   };
 }
 
@@ -93,16 +93,4 @@ export function extractDois(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(re)) out.add(normalizeDoi(m[0].replace(/[.)\]]+$/, "")));
   return [...out];
-}
-
-export function dedupe(cands: Candidate[]): Candidate[] {
-  const seen = new Set<string>();
-  const out: Candidate[] = [];
-  for (const c of cands) {
-    const key = c.doi ?? c.title.toLowerCase().replace(/\W+/g, " ").trim();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(c);
-  }
-  return out;
 }

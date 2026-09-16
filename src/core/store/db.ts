@@ -32,19 +32,6 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   output_tokens INTEGER NOT NULL,
   est_cost_usd REAL NOT NULL
 );
-CREATE TABLE IF NOT EXISTS prisoner (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  state TEXT NOT NULL,
-  meat INTEGER NOT NULL,
-  born_at TEXT NOT NULL,
-  grace_days INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS graves (
-  id INTEGER PRIMARY KEY,
-  died_on TEXT NOT NULL,
-  streak INTEGER NOT NULL,
-  meat INTEGER NOT NULL
-);
 `;
 
 export async function openDb(dataDir: string): Promise<void> {

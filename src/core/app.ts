@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import type { DayLog, GradeOutput, Memo, Paper, Settings, SummaryOutput } from "@/core/types";
+import type { DayLog, GradeOutput, Memo, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
 import { logicalDate } from "@/core/schedule/logicalDay";
 import { judgeMissingDays } from "@/core/schedule/judge";
 import { markRead, newPaper, queue, removePaper, reorderQueue, skipPaper, todaysPaper } from "@/core/papers/queue";
@@ -19,9 +19,9 @@ import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/setting
 import { loadPapers, savePapers } from "@/core/store/papers";
 import { findMemoForPaper, listMemos, readsByDate, saveMemo } from "@/core/store/memos";
 import * as sql from "@/core/store/db";
-import { dedupe, extractIdentifiers, lookupDoi, searchWorks, type Candidate } from "@/core/scholar/openalex";
-import * as death from "@/death";
-import type { DeathState } from "@/death";
+import { extractIdentifiers, lookupDoi } from "@/core/scholar/openalex";
+import { DEFAULT_SOURCES, dedupe, interleave, searchSource, sourceInfo } from "@/core/scholar/sources";
+import type { Candidate } from "@/core/scholar/types";
 
 export interface AppState {
   settings: Settings;
@@ -31,11 +31,10 @@ export interface AppState {
   /** 前日までの連続記録 */
   baseStreak: number;
   graceDays: number;
-  /** 死刑機能オン時のみ */
-  death: DeathState | null;
 }
 
 export const API_KEY_SECRET = "anthropic_api_key";
+export const S2_KEY_SECRET = "semanticscholar_api_key";
 
 export async function bootstrap(): Promise<AppState> {
   const dataDir = await resolveDataDir();
@@ -53,11 +52,10 @@ export async function bootstrap(): Promise<AppState> {
     await sql.setMeta("first_use_date", firstUse);
   }
   const { baseStreak, graceDays } = await runJudgement({ settings, memos, today, firstUse });
-  const d = settings.death_mode ? await loadDeath(dataDir, today) : null;
-  return { settings, papers, memos, today, baseStreak, graceDays, death: d };
+  return { settings, papers, memos, today, baseStreak, graceDays };
 }
 
-/** 未処理の日を判定して day_log に書く(仕様 5.4)。起動時と日付跨ぎで呼ぶ。死刑機能もここで追従する */
+/** 未処理の日を判定して day_log に書く(仕様 5.4)。起動時と日付跨ぎで呼ぶ */
 export async function runJudgement(args: { settings: Settings; memos: Memo[]; today: string; firstUse: string }) {
   const last = await sql.lastDayLog();
   const graceDays = Number((await sql.getMeta("grace_days")) ?? "0");
@@ -75,11 +73,6 @@ export async function runJudgement(args: { settings: Settings; memos: Memo[]; to
   return { baseStreak: r.streak, graceDays: r.graceDays };
 }
 
-async function loadDeath(dataDir: string, today: string): Promise<DeathState> {
-  await death.processDeath(today);
-  return death.loadDeathState(dataDir, today);
-}
-
 /** 日付が変わったときに App から呼ぶ */
 export async function rollover(state: AppState): Promise<AppState> {
   const today = logicalDate(new Date(), state.settings.day_boundary_hour);
@@ -87,8 +80,7 @@ export async function rollover(state: AppState): Promise<AppState> {
   const memos = await listMemos(state.settings.data_dir);
   const firstUse = (await sql.getMeta("first_use_date")) ?? today;
   const r = await runJudgement({ settings: state.settings, memos, today, firstUse });
-  const d = state.settings.death_mode ? await loadDeath(state.settings.data_dir, today) : null;
-  return { ...state, memos, today, ...r, death: d };
+  return { ...state, memos, today, ...r };
 }
 
 export function currentStreak(state: AppState): number {
@@ -188,37 +180,67 @@ export async function updatePaper(state: AppState, id: string, patch: Partial<Pa
 
 export interface SearchResult {
   candidates: (Candidate & { reason: string; rank: number })[];
+  /** 英語ソースに投げたクエリ */
   queries: string[];
+  /** 日本語ソースに投げたクエリ */
+  queriesJa: string[];
+  /** ソースごとの取得件数(重複統合前) */
+  perSource: { id: SourceId; count: number }[];
   usedLlm: boolean;
   warnings: string[];
 }
 
-export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean): Promise<SearchResult> {
+/** 候補の上限。rank のプロンプトに全部入れるので増やしすぎない */
+const MAX_CANDIDATES = 40;
+
+export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[]): Promise<SearchResult> {
   const warnings: string[] = [];
+  const sources = (sourceIds?.length ? sourceIds : state.settings.search.sources.length ? state.settings.search.sources : DEFAULT_SOURCES).map(sourceInfo);
+  const needJa = sources.some((s) => s.lang === "ja");
   let queries = [keywords];
+  let queriesJa = needJa ? [keywords] : [];
   let llm: LlmProvider | null = null;
   if (useLlm) {
     try {
       llm = await makeProvider(state.settings);
-      const r = await runRecommend(llm, keywords, purpose, state.settings.language);
+      const r = await runRecommend(llm, keywords, purpose, state.settings.language, needJa);
       await recordUsage(state.settings, "recommend", r.res);
       if (r.output.queries.length) queries = r.output.queries.slice(0, 6);
+      if (needJa && r.output.queries_ja.length) queriesJa = [...new Set([keywords, ...r.output.queries_ja])].slice(0, 4);
     } catch (e) {
       warnings.push(`LLM でのクエリ生成に失敗したためキーワードで直接検索します: ${e instanceof Error ? e.message : e}`);
       llm = null;
     }
   }
-  const all: Candidate[] = [];
-  for (const q of queries) {
-    try {
-      all.push(...(await searchWorks(q, tauriFetch, queries.length > 1 ? 10 : 25)));
-    } catch (e) {
-      warnings.push(`検索に失敗 (${q}): ${e instanceof Error ? e.message : e}`);
-    }
-  }
+
+  // ソースは並列、同じソースへのクエリは順番に(レート制限に当たらないように)
+  const s2Key = sources.some((s) => s.id === "semanticscholar") ? await secret.get(S2_KEY_SECRET) : null;
+  const perSource: SearchResult["perSource"] = [];
+  const lists = await Promise.all(
+    sources.map(async (src) => {
+      const qs = src.lang === "ja" ? queriesJa : queries;
+      const perPage = qs.length > 1 ? 10 : 25;
+      const got: Candidate[] = [];
+      for (const q of qs) {
+        try {
+          got.push(...(await searchSource(src.id, q, tauriFetch, { perPage, semanticScholarKey: s2Key })));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const hint = /\b429\b/.test(msg) ? (src.id === "semanticscholar" ? "。レート制限です。設定画面で API キーを入れるか、少し待ってから再検索してください" : "。レート制限です。少し待ってから再検索してください") : "";
+          warnings.push(`${src.label} の検索に失敗 (${q}): ${msg}${hint}`);
+          break; // 同じソースで続けても同じ失敗になりやすい
+        }
+      }
+      perSource.push({ id: src.id, count: got.length });
+      return dedupe(got);
+    }),
+  );
   const known = new Set(state.papers.filter((p) => p.status !== "removed").map((p) => p.id));
-  const cands = dedupe(all).filter((c) => !known.has(c.id)).slice(0, 30);
-  if (!cands.length) return { candidates: [], queries, usedLlm: false, warnings: [...warnings, "候補が見つかりませんでした"] };
+  const cands = dedupe(interleave(lists))
+    .filter((c) => !known.has(c.id))
+    .slice(0, MAX_CANDIDATES);
+  const base = { queries, queriesJa, perSource: sources.map((s) => perSource.find((p) => p.id === s.id) ?? { id: s.id, count: 0 }) };
+  if (!cands.length) return { ...base, candidates: [], usedLlm: false, warnings: [...warnings, "候補が見つかりませんでした"] };
 
   let ranked: RankItem[] | null = null;
   if (llm) {
@@ -233,11 +255,20 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
   let candidates: SearchResult["candidates"];
   if (ranked) {
     const byId = new Map(cands.map((c) => [c.id, c]));
-    candidates = ranked.map((it) => ({ ...byId.get(it.id)!, reason: it.reason, rank: it.rank }));
+    // LLM が id を落としたり捏造したりしても、候補にあるものだけを並べる
+    const seen = new Set<string>();
+    candidates = ranked.flatMap((it) => {
+      const c = byId.get(it.id);
+      if (!c || seen.has(it.id)) return [];
+      seen.add(it.id);
+      return [{ ...c, reason: it.reason, rank: it.rank }];
+    });
+    const rest = cands.filter((c) => !seen.has(c.id)).map((c, i) => ({ ...c, reason: "", rank: candidates.length + i + 1 }));
+    candidates = [...candidates, ...rest];
   } else {
     candidates = [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: "", rank: i + 1 }));
   }
-  return { candidates, queries, usedLlm: !!ranked, warnings };
+  return { ...base, candidates, usedLlm: !!ranked, warnings };
 }
 
 /** キューを LLM に並べ替えさせる(Q8) */
@@ -310,38 +341,19 @@ export async function persistMemo(state: AppState, memo: Memo, body: string): Pr
   if (newlyCompleted) fm.date = state.today; // 読了日は成立した日
   const saved = await saveMemo(state.settings.data_dir, fm, body, memo.path || undefined);
   let papers = state.papers;
-  let d = state.death;
   if (newlyCompleted) {
     papers = markRead(papers, memo.frontmatter.paper_id, new Date().toISOString());
     await savePapers(state.settings.data_dir, papers);
-    if (d) {
-      const p = await death.meatOnCompletion(chars);
-      if (p) d = { ...d, prisoner: p.state === "dead" ? { ...p, state: "alive" } : p };
-      if (p && p.state === "dead") await death.reenableDeath(state.today); // 読んだ瞬間に復活(判定は翌日だが見た目だけ先に)
-    }
   }
   const memos = await listMemos(state.settings.data_dir);
-  return { state: { ...state, papers, memos, death: d }, memo: saved, newlyCompleted };
+  return { state: { ...state, papers, memos }, memo: saved, newlyCompleted };
 }
 
 // ---- 設定 ----
 
 export async function updateSettings(state: AppState, settings: Settings): Promise<AppState> {
   await saveSettings(settings);
-  let d = state.death;
-  if (settings.death_mode && !state.settings.death_mode) {
-    if (await sql.getMeta("death_enabled_on")) await death.reenableDeath(state.today);
-    else await death.enableDeath(state.today);
-    d = await death.loadDeathState(settings.data_dir, state.today);
-  } else if (!settings.death_mode) {
-    d = null;
-  }
-  return { ...state, settings, death: d };
-}
-
-export async function saveAvatar(state: AppState, avatar: death.AvatarParts): Promise<AppState> {
-  await death.saveAvatar(state.settings.data_dir, avatar);
-  return state.death ? { ...state, death: { ...state.death, avatar } } : state;
+  return { ...state, settings };
 }
 
 export async function getApiKey(): Promise<string | null> {
@@ -351,6 +363,15 @@ export async function getApiKey(): Promise<string | null> {
 export async function setApiKey(key: string): Promise<void> {
   if (key.trim()) await secret.set(API_KEY_SECRET, key.trim());
   else await secret.delete(API_KEY_SECRET);
+}
+
+export async function getSemanticScholarKey(): Promise<string | null> {
+  return secret.get(S2_KEY_SECRET);
+}
+
+export async function setSemanticScholarKey(key: string): Promise<void> {
+  if (key.trim()) await secret.set(S2_KEY_SECRET, key.trim());
+  else await secret.delete(S2_KEY_SECRET);
 }
 
 // ---- LLM ----
@@ -388,16 +409,10 @@ export async function runAi(state: AppState, ctx: PaperContext, memo: Memo): Pro
   await recordUsage(state.settings, "grade", g.res);
   await sql.saveAiOutput(ctx.paper.id, "summary", ctx.inputKind, s.output);
   await sql.saveAiOutput(ctx.paper.id, "grade", ctx.inputKind, g.output);
-  const prevScore = memo.frontmatter.score_total ?? 0;
   const fm = { ...memo.frontmatter, summary_input: ctx.inputKind, score_total: g.output.total };
   await saveMemo(state.settings.data_dir, fm, memo.body, memo.path || undefined);
   const memos = await listMemos(state.settings.data_dir);
-  let d = state.death;
-  if (d) {
-    const p = await death.addMeat(g.output.total - prevScore); // 再採点なら差分だけ
-    if (p) d = { ...d, prisoner: p };
-  }
-  return { state: { ...state, memos, death: d }, summary: s.output, grade: g.output };
+  return { state: { ...state, memos }, summary: s.output, grade: g.output };
 }
 
 async function recordUsage(settings: Settings, task: "summary" | "grade" | "recommend" | "rank", res: { inputTokens: number; outputTokens: number; model: string }) {
@@ -414,7 +429,6 @@ async function recordUsage(settings: Settings, task: "summary" | "grade" | "reco
 
 export const loadAiOutputs = sql.loadAiOutputs;
 export const usageByMonthAndTask = sql.usageByMonthAndTask;
-export const listGraves = death.listGraves;
 
 export async function calendarLogs(from: string, to: string): Promise<DayLog[]> {
   return sql.dayLogsBetween(from, to);

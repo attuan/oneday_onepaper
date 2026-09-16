@@ -56,7 +56,9 @@ export interface Memo {
 }
 
 export type LlmProviderName = "anthropic" | "ollama";
-export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "plead";
+/** 論文検索のソース。一覧と説明は core/scholar/sources.ts */
+export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "pubmed" | "cinii" | "jstage";
+export type LlmTask = "recommend" | "rank" | "summary" | "grade";
 
 export interface LlmUsageRow {
   at: string;
@@ -86,8 +88,11 @@ export interface Settings {
     model: string;
     base_url: string | null; // ollama 用
   };
-  death_mode: boolean;
   grace: { enabled: boolean; per_month: number };
+  search: {
+    /** 「論文を探す」で既定でオンにするソース */
+    sources: SourceId[];
+  };
   notifications: {
     morning: string;
     evening: string;
@@ -104,8 +109,8 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
   extra_read_reward: "none",
   language: "ja",
   llm: { provider: "anthropic", model: "claude-opus-5", base_url: null },
-  death_mode: false,
   grace: { enabled: false, per_month: 0 },
+  search: { sources: ["openalex", "semanticscholar", "arxiv"] },
   notifications: {
     morning: "08:00",
     evening: "20:00",

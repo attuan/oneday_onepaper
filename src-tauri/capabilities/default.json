@@ -32,6 +32,15 @@
         },
         {
           "url": "https://export.arxiv.org/*"
+        },
+        {
+          "url": "https://cir.nii.ac.jp/*"
+        },
+        {
+          "url": "https://api.jstage.jst.go.jp/*"
+        },
+        {
+          "url": "https://eutils.ncbi.nlm.nih.gov/*"
         }
       ]
     }

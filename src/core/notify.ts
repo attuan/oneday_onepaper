@@ -1,24 +1,15 @@
-// 通知(仕様 10.4)。トレイ常駐中に JS のタイマーから呼ぶ。本体側は朝・夜・最終通知、命乞いは死刑機能オンのときだけ
+// 通知(仕様 10)。トレイ常駐中に JS のタイマーから呼ぶ。朝・夜・最終通知の 3 種類
 
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import type { Paper, Settings } from "@/core/types";
 import { boundaryEnd, isRestDay } from "@/core/schedule/logicalDay";
 import { getMeta, setMeta } from "@/core/store/db";
 
-const PLEAS = [
-  "まだ間に合う。1 本だけでいい。",
-  "読まなければ、明日の私はいない。",
-  "アブストラクトだけでも開いてくれ。",
-  "頼む。今日の分を読んでくれ。",
-  "連続記録が泣いている。",
-];
-
 export interface NotifyInput {
   settings: Settings;
   today: string;
   todaysPaper: Paper | null;
   readToday: boolean;
-  deathMode: boolean;
   now: Date;
 }
 
@@ -49,8 +40,7 @@ export function dueNotifications(input: NotifyInput): { key: string; title: stri
     const lastCall = new Date(end.getTime() - settings.notifications.last_call_minutes_before * 60_000);
     if (now >= lastCall && now < end) {
       const mins = Math.max(1, Math.round((end.getTime() - now.getTime()) / 60_000));
-      const plea = input.deathMode ? ` ${PLEAS[Math.floor(Math.random() * PLEAS.length)]}` : "";
-      out.push({ key: `lastcall:${today}`, title: `締切まで ${mins} 分`, body: `${title}${plea}` });
+      out.push({ key: `lastcall:${today}`, title: `締切まで ${mins} 分`, body: title });
     }
   }
   return out;

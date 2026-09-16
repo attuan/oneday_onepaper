@@ -10,8 +10,6 @@ import { PapersPage } from "./pages/PapersPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
-import { GraveyardPage } from "./pages/GraveyardPage";
-import { Avatar } from "./components/Avatar";
 
 export type Page =
   | { name: "home" }
@@ -21,7 +19,6 @@ export type Page =
   | { name: "papers" }
   | { name: "explore" }
   | { name: "usage" }
-  | { name: "graveyard" }
   | { name: "settings" };
 
 export interface PageProps {
@@ -30,13 +27,12 @@ export interface PageProps {
   go: (p: Page) => void;
 }
 
-const NAV: { page: Page; label: string; deathOnly?: boolean }[] = [
+const NAV: { page: Page; label: string }[] = [
   { page: { name: "home" }, label: "ホーム" },
   { page: { name: "today" }, label: "今日の論文" },
   { page: { name: "papers" }, label: "論文リスト" },
   { page: { name: "explore" }, label: "論文を探す" },
   { page: { name: "calendar" }, label: "カレンダー" },
-  { page: { name: "graveyard" }, label: "墓地", deathOnly: true },
   { page: { name: "usage" }, label: "API 使用量" },
   { page: { name: "settings" }, label: "設定" },
 ];
@@ -61,7 +57,6 @@ export function App() {
         today: next.today,
         todaysPaper: today(next),
         readToday: todaysReads(next).length > 0,
-        deathMode: next.settings.death_mode,
         now: new Date(),
       });
     } catch {
@@ -91,26 +86,19 @@ export function App() {
     case "papers": body = <PapersPage {...props} />; break;
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;
-    case "graveyard": body = <GraveyardPage {...props} />; break;
     case "settings": body = <SettingsPage {...props} />; break;
   }
 
   return (
-    <div className={`app${state.death ? " death" : ""}`}>
+    <div className="app">
       <nav className="nav">
-        <div className="brand">One day,<br />One paper{state.death && <span className="or-death"><br />(or death)</span>}</div>
-        {NAV.filter((n) => !n.deathOnly || state.death).map((n) => (
+        <div className="brand">One day,<br />One paper</div>
+        {NAV.map((n) => (
           <button key={n.page.name} className={page.name === n.page.name ? "active" : ""} onClick={() => setPage(n.page)}>
             {n.label}
           </button>
         ))}
         <div className="streak">
-          {state.death && (
-            <div className="nav-avatar">
-              <Avatar parts={state.death.avatar} prisoner={state.death.prisoner} size={72} />
-              <div className="muted-light">{prisonerLabel(state.death.prisoner.state)} · 肉 {state.death.prisoner.meat}</div>
-            </div>
-          )}
           連続記録
           <strong>{currentStreak(state)} 日</strong>
           {state.today}
@@ -119,8 +107,4 @@ export function App() {
       <main className="main">{body}</main>
     </div>
   );
-}
-
-export function prisonerLabel(s: "alive" | "warning" | "dead"): string {
-  return s === "alive" ? "生存" : s === "warning" ? "執行猶予中" : "死亡";
 }

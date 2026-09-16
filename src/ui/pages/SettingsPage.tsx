@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { getApiKey, saveAvatar, setApiKey, updateSettings } from "@/core/app";
-import { ACCESSORIES, Avatar, HAIRS, SKINS, STRIPES } from "../components/Avatar";
-import { DEFAULT_AVATAR, type AvatarParts, newPrisonerPreview } from "@/death";
-import type { Settings } from "@/core/types";
+import { getApiKey, getSemanticScholarKey, setApiKey, setSemanticScholarKey, updateSettings } from "@/core/app";
+import { SOURCES } from "@/core/scholar/sources";
+import type { Settings, SourceId } from "@/core/types";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -11,28 +10,36 @@ export function SettingsPage({ state, setState }: PageProps) {
   const [s, setS] = useState<Settings>(state.settings);
   const [key, setKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
+  const [s2Key, setS2Key] = useState("");
+  const [hasS2Key, setHasS2Key] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [avatar, setAvatar] = useState<AvatarParts>(state.death?.avatar ?? DEFAULT_AVATAR);
 
   useEffect(() => {
     getApiKey().then((k) => setHasKey(!!k));
+    getSemanticScholarKey().then((k) => setHasS2Key(!!k));
   }, []);
 
   const save = async () => {
     try {
-      let st = await updateSettings(state, s);
-      if (st.death) st = await saveAvatar(st, avatar);
-      setState(st);
+      setState(await updateSettings(state, s));
       if (key) {
         await setApiKey(key);
         setHasKey(true);
         setKey("");
+      }
+      if (s2Key) {
+        await setSemanticScholarKey(s2Key);
+        setHasS2Key(true);
+        setS2Key("");
       }
       setMsg("保存しました");
     } catch (e) {
       setMsg(`保存に失敗: ${e}`);
     }
   };
+
+  const toggleSource = (id: SourceId) =>
+    setS({ ...s, search: { ...s.search, sources: s.search.sources.includes(id) ? s.search.sources.filter((x) => x !== id) : [...s.search.sources, id] } });
 
   const toggleWd = (d: number) =>
     setS({ ...s, rest_weekdays: s.rest_weekdays.includes(d) ? s.rest_weekdays.filter((x) => x !== d) : [...s.rest_weekdays, d].sort() });
@@ -110,6 +117,23 @@ export function SettingsPage({ state, setState }: PageProps) {
       </div>
 
       <div className="card">
+        <h2 style={{ marginTop: 0 }}>論文検索</h2>
+        <div className="field">
+          <label>既定で使うソース(検索画面でその都度変えられる)</label>
+          {SOURCES.map((src) => (
+            <div key={src.id}>
+              <label><input type="checkbox" checked={s.search.sources.includes(src.id)} onChange={() => toggleSource(src.id)} /> {src.label}</label>
+              <span className="muted"> — {src.note}</span>
+            </div>
+          ))}
+        </div>
+        <div className="field">
+          <label>Semantic Scholar の API キー(任意。OS のキーチェーンに保存。{hasS2Key ? "設定済み" : "未設定"})</label>
+          <input type="password" value={s2Key} onChange={(e) => setS2Key(e.target.value)} placeholder={hasS2Key ? "変更する場合のみ入力" : "なしでも動くが、レート制限が厳しい"} />
+        </div>
+      </div>
+
+      <div className="card">
         <h2 style={{ marginTop: 0 }}>通知</h2>
         <div className="row">
           <div className="field"><label>朝の通知</label><input type="time" value={s.notifications.morning} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, morning: e.target.value } })} /></div>
@@ -118,40 +142,6 @@ export function SettingsPage({ state, setState }: PageProps) {
         </div>
         <label><input type="checkbox" checked={s.notifications.channels.includes("os")} onChange={(e) => setS({ ...s, notifications: { ...s.notifications, channels: e.target.checked ? ["os"] : [] } })} /> macOS の通知を使う</label>
         <p className="muted">ウィンドウを閉じてもメニューバーに常駐し、通知を出します。終了はメニューバーのアイコンから。休みの日は通知しません。</p>
-      </div>
-
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>死刑機能</h2>
-        <label>
-          <input
-            type="checkbox"
-            checked={s.death_mode}
-            onChange={async (e) => {
-              // このチェックだけは保存ボタンを待たずに即反映する
-              const next = { ...s, death_mode: e.target.checked };
-              setS(next);
-              try {
-                setState(await updateSettings(state, next));
-                setMsg(next.death_mode ? "死刑機能をオンにしました" : "死刑機能をオフにしました(シンプル機能)");
-              } catch (err) {
-                setMsg(`切り替えに失敗: ${err}`);
-              }
-            }}
-          />{" "}
-          有効にする(オフのときは「シンプル機能」)。この項目は即反映されます
-        </label>
-        <p className="muted">読まなかった日があると囚人が死に、連続記録はリセット、肉は半減、墓地に記録が残ります。オフにしても読了の記録は残り、オンに戻したときにオフ期間の未読で死ぬことはありません。</p>
-        {s.death_mode && (
-          <div className="row" style={{ alignItems: "flex-start", marginTop: 10 }}>
-            <Avatar parts={avatar} prisoner={state.death?.prisoner ?? newPrisonerPreview()} size={120} />
-            <div>
-              <div className="field"><label>肌</label><div className="row">{SKINS.map((c, i) => <button key={i} className={`swatch${avatar.skin === i ? " on" : ""}`} style={{ background: c }} onClick={() => setAvatar({ ...avatar, skin: i })} />)}</div></div>
-              <div className="field"><label>髪</label><div className="row">{HAIRS.map((c, i) => <button key={i} className={`swatch${avatar.hair === i ? " on" : ""}`} style={{ background: c }} onClick={() => setAvatar({ ...avatar, hair: i })} />)}</div></div>
-              <div className="field"><label>囚人服</label><div className="row">{STRIPES.map((c, i) => <button key={i} className={`swatch${avatar.stripes === i ? " on" : ""}`} style={{ background: `repeating-linear-gradient(${c[0]} 0 4px, ${c[1]} 4px 6px)` }} onClick={() => setAvatar({ ...avatar, stripes: i })} />)}</div></div>
-              <div className="field"><label>小物</label><select value={avatar.accessory} onChange={(e) => setAvatar({ ...avatar, accessory: Number(e.target.value) })}>{ACCESSORIES.map((a, i) => <option key={i} value={i}>{a}</option>)}</select></div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="card">

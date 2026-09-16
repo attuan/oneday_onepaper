@@ -1,34 +1,15 @@
 import type { PageProps } from "../App";
-import { prisonerLabel } from "../App";
 import { currentStreak, today, todaysReads } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
-import { Avatar } from "../components/Avatar";
-import { MEAT_STAGES, meatStage } from "@/death";
 
 export function HomePage({ state, go }: PageProps) {
   const paper = today(state);
   const reads = todaysReads(state);
   const q = queue(state.papers);
-  const d = state.death;
   return (
     <>
       <h1>ホーム</h1>
-      {d && (
-        <div className="card death row" style={{ alignItems: "center" }}>
-          <Avatar parts={d.avatar} prisoner={d.prisoner} size={110} />
-          <div style={{ flex: 1 }}>
-            <p className="title" style={{ margin: 0 }}>{prisonerLabel(d.prisoner.state)}</p>
-            <div className="muted">
-              肉 {d.prisoner.meat}(段階 {meatStage(d.prisoner.meat) + 1} / {MEAT_STAGES.length}
-              {meatStage(d.prisoner.meat) < MEAT_STAGES.length - 1 ? `、次まで ${MEAT_STAGES[meatStage(d.prisoner.meat) + 1] - d.prisoner.meat}` : ""})
-            </div>
-            {d.prisoner.state === "dead" && <p className="plea">今日 1 本読めば、新しい囚人として生き返る。</p>}
-            {d.prisoner.state === "warning" && <p className="plea">猶予を使った。今日読まなければ次はない。</p>}
-            {d.prisoner.state === "alive" && reads.length === 0 && paper && <p className="plea">今日読まなければ、明日の私はいない。</p>}
-          </div>
-        </div>
-      )}
       {reads.length > 0 ? (
         <div className="card hero">
           <p className="title ok">今日の 1 本は読了済みです</p>
