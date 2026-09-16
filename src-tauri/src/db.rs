@@ -41,6 +41,15 @@ pub fn db_open(state: tauri::State<DbState>, path: String) -> Result<(), String>
     Ok(())
 }
 
+/// 取り込みで state.sqlite を差し替える前に呼ぶ。最後の接続が閉じるので WAL も本体に書き戻される
+#[tauri::command]
+pub fn db_close(state: tauri::State<DbState>) -> Result<(), String> {
+    if let Some(conn) = state.0.lock().unwrap().take() {
+        conn.close().map_err(|(_, e)| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn db_execute(state: tauri::State<DbState>, sql: String, params: Vec<Value>) -> Result<usize, String> {
     let guard = state.0.lock().unwrap();

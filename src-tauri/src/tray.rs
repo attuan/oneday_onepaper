@@ -35,8 +35,3 @@ fn show(app: &AppHandle) {
         let _ = w.set_focus();
     }
 }
-
-#[tauri::command]
-pub fn show_main_window(app: AppHandle) {
-    show(&app);
-}

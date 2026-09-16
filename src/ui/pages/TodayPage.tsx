@@ -4,8 +4,8 @@ import { downloadPdf, hasPdf, skipToday, today } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { pdfPath } from "@/core/app";
+import { opener } from "@/core/store/backend";
 
 export function TodayPage({ state, setState, go }: PageProps) {
   const paper = today(state);
@@ -56,7 +56,7 @@ export function TodayPage({ state, setState, go }: PageProps) {
         <PaperLinks paper={paper} />
         <div className="row" style={{ marginTop: 8 }}>
           {pdf ? (
-            <button className="btn secondary small" onClick={() => openPath(pdfPath(state.settings.data_dir, paper))}>保存済み PDF を開く</button>
+            <button className="btn secondary small" onClick={() => opener.path(pdfPath(state.settings.data_dir, paper))}>保存済み PDF を開く</button>
           ) : paper.pdf_url ? (
             <button className="btn secondary small" disabled={busy} onClick={fetchPdf}>PDF を保存する</button>
           ) : null}

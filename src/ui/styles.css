@@ -79,3 +79,53 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .cal-entry { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 2px 0; font: inherit; color: inherit; border-radius: 4px; }
 .cal-entry:hover { background: rgba(30, 95, 184, 0.12); }
 .cal-entry .t { text-decoration: underline dotted; }
+
+/* 講座(v2) */
+.lessons { display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: start; }
+.lessons-nav { display: flex; flex-direction: column; gap: 2px; }
+.lessons-nav button { text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 8px 10px; color: var(--text); }
+.lessons-nav button:hover { background: var(--blue-light); }
+.lessons-nav button.active { background: var(--blue-light); color: var(--blue-dark); font-weight: 600; }
+.lesson { max-width: 720px; line-height: 1.8; font-size: 15px; }
+.lesson h1 { font-size: 22px; margin: 0 0 16px; }
+.lesson h2 { font-size: 17px; margin: 28px 0 8px; }
+.lesson h3 { font-size: 15px; margin: 20px 0 6px; color: var(--blue-dark); }
+.lesson p { margin: 0 0 12px; }
+.lesson ul, .lesson ol { padding-left: 22px; margin: 0 0 12px; }
+.lesson li { margin-bottom: 4px; }
+.lesson blockquote { margin: 0 0 12px; padding: 8px 14px; border-left: 3px solid var(--blue-mid); background: var(--blue-light); color: var(--text); border-radius: 0 6px 6px 0; }
+.lesson code { background: var(--blue-light); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+.lesson pre { background: var(--blue-light); padding: 12px 14px; border-radius: 6px; overflow-x: auto; }
+.lesson pre code { background: transparent; padding: 0; }
+.lesson a { color: var(--blue); }
+.lesson hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* ポモドーロ(v2) */
+.pomodoro.break { background: #f4f6fa; }
+.pomodoro .title.mono { font-variant-numeric: tabular-nums; font-size: 28px; margin: 2px 0; }
+
+/* 狭い画面(モバイル、v2)。ナビを上のバーにして、2 列のものを 1 列にする */
+@media (max-width: 720px) {
+  .app { flex-direction: column; height: auto; min-height: 100dvh; }
+  .nav { width: auto; flex-direction: row; align-items: center; padding: 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; position: sticky; top: 0; z-index: 10; }
+  .nav .brand { padding: 10px 10px; font-size: 13px; white-space: nowrap; }
+  .nav .brand br { display: none; }
+  .nav button { padding: 12px 10px; white-space: nowrap; font-size: 14px; }
+  .nav .streak { margin-top: 0; margin-left: auto; padding: 6px 10px; white-space: nowrap; font-size: 11px; display: flex; gap: 6px; align-items: baseline; }
+  .nav .streak strong { display: inline; font-size: 16px; }
+  .main { padding: 16px; overflow: visible; }
+  h1 { font-size: 20px; margin-bottom: 14px; }
+  .card { padding: 14px 14px; }
+  .row > .card { flex-basis: 100%; }
+  .editor { grid-template-columns: 1fr; height: auto; }
+  .editor textarea { height: 60dvh; min-height: 320px; }
+  .editor .side { overflow: visible; }
+  .calendar { gap: 2px; }
+  .calendar .day { min-height: 56px; padding: 4px; font-size: 11px; }
+  .calendar .day .t { -webkit-line-clamp: 1; }
+  .lessons { grid-template-columns: 1fr; }
+  .lessons-nav { flex-direction: row; overflow-x: auto; gap: 6px; }
+  .lessons-nav button { white-space: nowrap; border: 1px solid var(--border); }
+  table { display: block; overflow-x: auto; }
+  td[style*="nowrap"] { white-space: normal !important; width: auto !important; }
+}

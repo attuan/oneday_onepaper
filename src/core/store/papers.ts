@@ -1,5 +1,5 @@
 import type { Paper, PapersFile } from "@/core/types";
-import { fs, joinPath } from "./tauri";
+import { fs, joinPath } from "./backend";
 
 export function papersPath(dataDir: string): string {
   return joinPath(dataDir, "papers.json");

@@ -75,6 +75,9 @@ export interface RestPeriod {
   to: string;
 }
 
+/** 通知の配信先。os はデスクトップ / ブラウザの通知、slack と line は Webhook / Messaging API */
+export type NotifyChannel = "os" | "slack" | "line";
+
 export interface Settings {
   data_dir: string;
   day_boundary_hour: number;
@@ -97,7 +100,15 @@ export interface Settings {
     morning: string;
     evening: string;
     last_call_minutes_before: number;
-    channels: string[];
+    channels: NotifyChannel[];
+    /** LINE の送信先(ユーザー ID)。トークンは secret に置く */
+    line_to: string;
+  };
+  /** ポモドーロ(仕様 11 v2)。要るかどうか判断するため、まずは載せておく */
+  pomodoro: {
+    enabled: boolean;
+    work_minutes: number;
+    break_minutes: number;
   };
 }
 
@@ -116,7 +127,9 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
     evening: "20:00",
     last_call_minutes_before: 60,
     channels: ["os"],
+    line_to: "",
   },
+  pomodoro: { enabled: true, work_minutes: 25, break_minutes: 5 },
 };
 
 export interface SummaryOutput {

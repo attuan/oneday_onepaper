@@ -1,6 +1,6 @@
 import type { Memo, MemoFrontmatter } from "@/core/types";
 import { memoFileName, parseMemo, serializeMemo } from "@/core/memo/format";
-import { fs, joinPath } from "./tauri";
+import { fs, joinPath } from "./backend";
 
 export function memosDir(dataDir: string): string {
   return joinPath(dataDir, "memos");

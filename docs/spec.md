@@ -1,4 +1,4 @@
-# 仕様書 v0.1
+# 仕様書 v0.2
 
 実装状況は [README](../README.md) の「実装状況」を参照。
 
@@ -33,6 +33,14 @@ UI の細部は対話しながら変える前提なので、ここでは「変�
   - TypeScript: UI、アプリロジック(スケジューリング、読了判定)、LLM 呼び出し、学術 API 呼び出し
   - Rust(Tauri コマンド): ファイル読み書き、SQLite、OS 通知、PDF テキスト抽出、トレイ常駐、スケジュール起動
 - 将来のモバイル化のため、Rust 側は「OS の代わりに何かをする」ものに限定する。
+- その境界は `src/core/store/backend.ts` の `Backend` interface に置く。Tauri 実装のほかにブラウザ実装
+  (OPFS・sql.js・pdf.js・localStorage・Web Notifications)があり、起動時に選ぶ(2026-09-16 追加)。
+  ブラウザ版は常駐できないので、通知はタブを開いている間だけ出る(10.4 の常駐はデスクトップ版のみ)。
+- データの書き出し・取り込みは 4.1 のフォルダをそのまま ZIP にしたもの(`src/core/archive.ts`)。
+  API キーは含めない。取り込みは置き換えで、置き換える前の状態を `backups/` に書き出す。
+- モバイル(Tauri 2 の iOS / Android)は同じ Rust コマンドと同じ画面を使う。トレイと「閉じても隠す」だけ
+  `cfg(desktop)` で外し、既定のデータフォルダはアプリのサンドボックス内(`app.path().document_dir()`)にする。
+  画面は 720px 以下でナビを上のバーにし、2 列のものを 1 列にする(2026-09-16 追加、実機ビルドは未検証)。
 
 ```
 src/
@@ -43,6 +51,10 @@ src/
     llm/         プロバイダ抽象層と 4 つのタスク
     scholar/     学術 API
     usage/       トークン記録と概算
+    notify.ts    通知の文面と配信。notifyChannels.ts が Slack / LINE
+    pomodoro.ts  ポモドーロの状態遷移
+    markdown.ts  講座用の小さな Markdown レンダラ
+  content/lessons/  講座(静的 Markdown。ビルド時に同梱)
   ui/            画面。core だけを使う
 src-tauri/       Rust
 ```
@@ -97,7 +109,11 @@ Markdown と JSON は人が読める。SQLite は集計と検索のためのイ�
 ```
 
 - 手入力の最低必須は `title` のみ。
-- インポート: CSV(上記の列名に対応)、DOI の羅列(1 行 1 DOI。書誌情報は Crossref / OpenAlex から補完)。BibTeX は v1。
+- インポート: CSV(上記の列名に対応)、DOI の羅列(1 行 1 DOI。書誌情報は Crossref / OpenAlex から補完)、
+  BibTeX(ファイルか貼り付け。`src/core/papers/bibtex.ts`)。
+- BibTeX の取り込みでは元のエントリを `bibtex` に残す。書き出し(`papersToBibtex`)は `bibtex` があればそのまま、
+  無ければ書誌情報から生成する。引用キーは「筆頭著者の姓 + 年 + タイトルの最初の語」を ASCII に落としたもので、
+  重なれば a, b, … を付ける。arXiv の DOI は `eprint` / `archiveprefix` にする。
 
 ### 4.3 メモ(`memos/<date>_<paper-id>.md`)
 
@@ -182,12 +198,15 @@ CREATE TABLE llm_usage (
     "morning": "08:00",
     "evening": "20:00",
     "last_call_minutes_before": 60,
-    "channels": ["os"]                    // v2: "slack", "line"
-  }
+    "channels": ["os"],                   // "os" | "slack" | "line" の組み合わせ
+    "line_to": ""                         // LINE の送信先ユーザー ID
+  },
+  "pomodoro": { "enabled": true, "work_minutes": 25, "break_minutes": 5 }
 }
 ```
 
-API キーは OS のキーチェーンに置き、`settings.json` には参照だけ書く。
+API キーは OS のキーチェーンに置き、`settings.json` には参照だけ書く。Slack の Webhook URL と
+LINE のチャネルアクセストークンも同じ場所(secret 層。ブラウザ版は localStorage)に置く。
 
 ## 5. スケジューリング
 
@@ -311,6 +330,15 @@ UI の細部は変える前提。ここでは画面の**存在と責務**だけ�
 - 夜(`evening`): 未読なら「まだ読んでいない」。
 - 境界の `last_call_minutes_before` 分前: 未読なら「締切まで N 分」。
 - 通知はトレイ常駐プロセスが出す。休みの日は出さない。
+- 配信先(`notifications.channels`)は複数選べる。文面は共通。
+  - `os`: デスクトップ / ブラウザの通知
+  - `slack`: Incoming Webhook に `{ text }` を POST
+  - `line`: Messaging API の push(`/v2/bot/message/push`)。チャネルアクセストークンと送信先ユーザー ID が要る。
+    LINE Notify は終了しているので使わない
+- 1 通につき 1 回だけ送る(`meta` の `notified:<key>`)。どの配信先にも送れなかったときは記録せず次の tick で再試行する。
+- ブラウザ版: Slack は中継が無くても no-cors のフォーム送信(`payload=`)で送れる(成否は見えない)。
+  LINE は `Authorization` ヘッダが要るので CORS 中継が必要。中継は POST をこの 2 ホストにだけ通す。
+- ポモドーロの終了も `os` の通知で知らせる(Slack / LINE には送らない)。
 
 ## 11. ビルド順序
 
@@ -331,11 +359,11 @@ MVP は「作る順番」。UI は各段階で対話しながら変える。
 10. 使用量画面
 11. トレイ常駐 + OS 通知
 
-### v2
-12. Slack / LINE 配信
-13. BibTeX インポート・エクスポート
-14. 講座(静的 Markdown)、ポモドーロ(作ってから要否判断)
-15. モバイル(Tauri 2 の iOS / Android)
+### v2(2026-09-16 実装)
+12. Slack / LINE 配信(10 章)
+13. BibTeX インポート・エクスポート(4.2)
+14. 講座(静的 Markdown。`src/content/lessons/`)、ポモドーロ(メモエディタの側面。設定でオフにできる。要否は使って判断)
+15. モバイル(Tauri 2 の iOS / Android)。コードと画面は対応済み。実機ビルドは Xcode / Android SDK のある環境で行う(README 参照)
 
 ## 12. 仮置き・要確認
 
