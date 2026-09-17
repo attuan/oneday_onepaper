@@ -5,4 +5,4 @@ compatibility_date = "2026-09-01"
 
 [vars]
 # ブラウザ版を置く場所を足す(カンマ区切り、末尾のスラッシュなし)
-ALLOWED_ORIGINS = "http://localhost:1420"
+ALLOWED_ORIGINS = "http://localhost:1420,https://attuan.github.io"

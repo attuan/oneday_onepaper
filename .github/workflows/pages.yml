@@ -1,0 +1,66 @@
+# ブラウザ版を GitHub Pages に公開する。main に push すると走る
+#
+# 使い方(フォークした人向け):
+# 1. リポジトリの Settings → Pages → Source を「GitHub Actions」にする
+# 2. (任意) Settings → Secrets and variables → Actions → Variables に
+#    VITE_PROXY_BASE = https://oneday-onepaper-proxy.<アカウント>.workers.dev を足す。
+#    無ければ CORS 中継なしで公開される(arXiv API と J-STAGE、LINE 通知が使えない)
+# 3. main に push する。https://<ユーザー名>.github.io/<リポジトリ名>/ に出る
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # <ユーザー名>.github.io というリポジトリなら "/"、それ以外は "/<リポジトリ名>/" に置かれる
+      - name: サブパスを決める
+        id: base
+        run: |
+          name="${{ github.event.repository.name }}"
+          if [[ "$name" == *.github.io ]]; then echo "path=/" >> "$GITHUB_OUTPUT"
+          else echo "path=/$name/" >> "$GITHUB_OUTPUT"; fi
+
+      - run: npm run build
+        env:
+          BASE_PATH: ${{ steps.base.outputs.path }}
+          VITE_PROXY_BASE: ${{ vars.VITE_PROXY_BASE }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
