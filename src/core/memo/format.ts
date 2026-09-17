@@ -1,6 +1,9 @@
 // メモ形式(仕様 4.3): frontmatter + Markdown 本文
 
-import type { Memo, MemoFrontmatter, Paper } from "@/core/types";
+import type { Memo, MemoFrontmatter, Paper, ReadLevel } from "@/core/types";
+
+/** 最初の見出し。ここに 1 行書けば Lv1 の読了になる(仕様 6) */
+export const QUICK_HEADING = "ひとこと(まずここだけでよい)";
 
 export const TEMPLATE_HEADINGS = [
   "何を解いた / 論じた問題か",
@@ -11,7 +14,7 @@ export const TEMPLATE_HEADINGS = [
 ];
 
 export function memoTemplate(paper: Paper): string {
-  return [`# ${paper.title}`, "", ...TEMPLATE_HEADINGS.flatMap((h) => [`## ${h}`, "", ""])].join("\n");
+  return [`# ${paper.title}`, "", ...[QUICK_HEADING, ...TEMPLATE_HEADINGS].flatMap((h) => [`## ${h}`, "", ""])].join("\n");
 }
 
 export function memoFileName(date: string, paperId: string): string {
@@ -35,6 +38,7 @@ export function serializeMemo(fm: MemoFrontmatter, body: string): string {
     `date: ${fm.date}`,
     `chars: ${fm.chars}`,
     `completed: ${fm.completed}`,
+    `level: ${fm.level}`,
     `summary_input: ${JSON.stringify(fm.summary_input)}`,
     `score_total: ${fm.score_total === null ? "null" : fm.score_total}`,
     "---",
@@ -66,11 +70,15 @@ export function parseMemo(path: string, text: string): Memo | null {
   const paper_id = unq(fmRaw.paper_id);
   if (!paper_id) return null;
   const score = fmRaw.score_total?.trim();
+  // level が無いのは段階を入れる前のメモ。当時の読了は今の Lv3 と同じ条件だった
+  const parsedLevel = Number(fmRaw.level);
+  const level = ([1, 2, 3].includes(parsedLevel) ? parsedLevel : fmRaw.completed?.trim() === "true" ? 3 : 0) as ReadLevel;
   const fm: MemoFrontmatter = {
     paper_id,
     date: unq(fmRaw.date),
     chars: Number(fmRaw.chars) || 0,
-    completed: fmRaw.completed?.trim() === "true",
+    completed: level >= 1,
+    level,
     summary_input: (unq(fmRaw.summary_input) || "none") as MemoFrontmatter["summary_input"],
     score_total: !score || score === "null" ? null : Number(score),
   };

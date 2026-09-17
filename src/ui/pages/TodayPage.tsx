@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
 import { downloadPdf, hasPdf, skipToday, today } from "@/core/app";
 import { queue } from "@/core/papers/queue";
+import { levelThresholds } from "@/core/memo/completion";
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { pdfPath } from "@/core/app";
@@ -76,7 +77,7 @@ export function TodayPage({ state, setState, go }: PageProps) {
         </div>
         {paper.skip_count > 0 && <p className="muted" style={{ marginTop: 8 }}>この論文は {paper.skip_count} 回スキップされています</p>}
       </div>
-      <p className="muted">読了の条件: メモを保存し、本文が {state.settings.min_memo_chars} 文字以上あること。AI の要約と採点は読了後に表示されます。</p>
+      <p className="muted">時間がない日は、アブストラクトと図だけ見て 1 行書けば読了です({levelThresholds(state.settings)[0]} 文字から。書き足すと Lv2、Lv3 に上がります)。AI の要約と採点は読了後に表示されます。</p>
     </>
   );
 }

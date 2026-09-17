@@ -1,0 +1,233 @@
+import { useEffect, useState } from "react";
+import type { PageProps } from "../App";
+import { apiUsable, estimateAiCost, extractFulltext, hasPdf, loadAiOutputs, platform, runAi, saveHandoffResult, updateSettings } from "@/core/app";
+import type { AiVia, GradeOutput, Memo, Paper, SummaryOutput } from "@/core/types";
+import { buildHandoffPrompt, handoffReturnUrl, shortcutRunUrl } from "@/core/llm/handoff";
+import type { PaperContext } from "@/core/llm/tasks";
+import { formatUsd } from "@/core/usage/cost";
+import { clearPending, loadPending, savePending } from "../handoffPending";
+
+type Via = Exclude<AiVia, "auto">;
+
+/** ショートカット App がある端末か。iPad の Safari は Macintosh を名乗る */
+const appleDevice = () => /iPad|iPhone|Macintosh/.test(navigator.userAgent);
+
+export function AiPanel({ state, setState, memo, paper }: { state: PageProps["state"]; setState: PageProps["setState"]; memo: Memo; paper: Paper }) {
+  // ショートカットの戻り先は https のページなので、デスクトップ版からは使えない
+  const shortcutAvailable = platform() === "web";
+  const [summary, setSummary] = useState<SummaryOutput | null>(null);
+  const [grade, setGrade] = useState<GradeOutput | null>(null);
+  const [pending] = useState(() => loadPending(paper.id));
+  const [inputKind, setInputKind] = useState<PaperContext["inputKind"]>(pending?.inputKind ?? "abstract");
+  const [pasted, setPasted] = useState("");
+  const [fulltext, setFulltext] = useState<{ text: string; tokens: number } | null>(null);
+  const [pdfAvailable, setPdfAvailable] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [via, setVia] = useState<Via | null>(null);
+  const [handedOff, setHandedOff] = useState(!!pending);
+  const [answer, setAnswer] = useState("");
+  const [note, setNote] = useState<string | null>(pending ? "戻ってきました。「2. 結果を貼り付ける」を押してください。" : null);
+
+  useEffect(() => {
+    loadAiOutputs(paper.id).then((o) => {
+      setSummary(o.summary);
+      setGrade(o.grade);
+    });
+    hasPdf(state, paper).then((h) => setPdfAvailable(h || !!paper.pdf_url));
+  }, [paper.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 実行方法。auto は API が使えれば API、だめなら Apple の端末でショートカット、それ以外は貼り付け(仕様 7.4)
+  useEffect(() => {
+    const chosen = state.settings.llm.summary_via;
+    if (chosen !== "auto") {
+      setVia(chosen === "shortcut" && !shortcutAvailable ? "paste" : chosen);
+      return;
+    }
+    apiUsable(state.settings).then((ok) => setVia(ok ? "api" : shortcutAvailable && appleDevice() ? "shortcut" : "paste"));
+  }, [state.settings, shortcutAvailable]);
+
+  // 全文を選んだら抽出してトークン数を出す(仕様 7.3)
+  useEffect(() => {
+    if (inputKind !== "fulltext" || fulltext) return;
+    setExtracting(true);
+    setErr(null);
+    extractFulltext(state, paper)
+      .then((r) => {
+        setState(r.state);
+        setFulltext({ text: r.text, tokens: r.tokens });
+      })
+      .catch((e) => {
+        setErr(`全文を用意できませんでした: ${e instanceof Error ? e.message : e}`);
+        setInputKind("abstract");
+      })
+      .finally(() => setExtracting(false));
+  }, [inputKind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const text = inputKind === "pasted" ? pasted : inputKind === "fulltext" ? (fulltext?.text ?? "") : (paper.abstract ?? "");
+  const ctx: PaperContext = { paper, text: text || "(アブストラクトなし。タイトルと書誌情報のみ)", inputKind };
+  const est = estimateAiCost(state.settings, ctx, memo.body);
+  const absEst = estimateAiCost(state.settings, { paper, text: paper.abstract ?? "", inputKind: "abstract" }, memo.body);
+
+  const chooseVia = async (v: Via) => {
+    setVia(v);
+    setErr(null);
+    setState(await updateSettings(state, { ...state.settings, llm: { ...state.settings.llm, summary_via: v } }));
+  };
+
+  const run = async () => {
+    setRunning(true);
+    setErr(null);
+    try {
+      const r = await runAi(state, ctx, memo);
+      setState(r.state);
+      setSummary(r.summary);
+      setGrade(r.grade);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  /** プロンプトをクリップボードに置く。ショートカットならそのまま起動する */
+  const handOff = async () => {
+    setErr(null);
+    try {
+      await navigator.clipboard.writeText(buildHandoffPrompt(ctx, memo.body, state.settings.language));
+    } catch {
+      setErr("クリップボードに書き込めませんでした。下の「プロンプトを表示」から手でコピーしてください");
+      return;
+    }
+    savePending({ paperId: paper.id, inputKind });
+    setHandedOff(true);
+    if (via === "shortcut") {
+      setNote("ショートカットを開きます。終わるとこのページに戻ります。");
+      location.href = shortcutRunUrl(state.settings.llm.shortcut_name, handoffReturnUrl(location.href, paper.id));
+    } else {
+      setNote("プロンプトをコピーしました。ChatGPT や Claude などに貼り、返ってきた JSON をコピーして戻ってきてください。");
+    }
+  };
+
+  const accept = async (raw: string) => {
+    setRunning(true);
+    setErr(null);
+    try {
+      const r = await saveHandoffResult(state, memo, inputKind, raw);
+      clearPending();
+      setState(r.state);
+      setSummary(r.summary);
+      setGrade(r.grade);
+      setNote(null);
+      setAnswer("");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const pasteAnswer = async () => {
+    try {
+      await accept(await navigator.clipboard.readText());
+    } catch {
+      setErr("クリップボードを読めませんでした。下の欄に貼り付けて「読み込む」を押してください");
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>AI 要約と採点</h2>
+      {!summary && memo.frontmatter.level < 3 && <p className="muted">採点はメモ全体が対象です。Lv3 まで書いてから実行すると、点もコメントも役に立ちます。</p>}
+      {!summary && via && (
+        <>
+          <div className="field">
+            <label>実行方法</label>
+            <select value={via} onChange={(e) => chooseVia(e.target.value as Via)}>
+              <option value="api">API({state.settings.llm.provider} / {state.settings.llm.model})</option>
+              {shortcutAvailable && <option value="shortcut">Apple Intelligence(ショートカット経由・キー不要)</option>}
+              <option value="paste">好きな AI に貼り付ける(キー不要)</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>LLM に渡す論文情報</label>
+            <select value={inputKind} onChange={(e) => setInputKind(e.target.value as PaperContext["inputKind"])}>
+              <option value="abstract">アブストラクトのみ(既定{via === "api" && `・約 ${formatUsd(absEst.costUsd)}`})</option>
+              <option value="fulltext" disabled={!pdfAvailable}>全文 PDF{pdfAvailable ? (fulltext ? `(約 ${fulltext.tokens.toLocaleString()} トークン)` : "") : "(PDF なし)"}</option>
+              <option value="pasted">本文を貼り付ける</option>
+            </select>
+          </div>
+          {inputKind === "pasted" && (
+            <div className="field">
+              <textarea rows={6} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="論文本文をここに貼り付け" />
+            </div>
+          )}
+          {extracting && <p className="muted">PDF から本文を抽出中…</p>}
+          {via === "api" ? (
+            <>
+              <p className="muted">
+                推定: 入力 約 {est.inputTokens.toLocaleString()} トークン + 出力 約 {est.outputTokensGuess.toLocaleString()} トークン ≈ <strong>{formatUsd(est.costUsd)}</strong>
+                {inputKind !== "abstract" && <><br />アブストのみなら約 {formatUsd(absEst.costUsd)}</>}
+              </p>
+              <button className="btn" disabled={running || extracting} onClick={run}>{running ? "実行中…" : "要約と採点を実行"}</button>
+            </>
+          ) : (
+            <>
+              {via === "shortcut" && inputKind !== "abstract" && <p className="muted">端末内のモデルは長い文章を扱えません。全文を渡すなら、ショートカット側のモデルを Private Cloud Compute にしてください。</p>}
+              <div className="row">
+                <button className={handedOff ? "btn secondary" : "btn"} disabled={running || extracting} onClick={handOff}>
+                  {via === "shortcut" ? "1. Apple Intelligence で実行" : "1. プロンプトをコピー"}
+                </button>
+                <button className={handedOff ? "btn" : "btn secondary"} disabled={running} onClick={pasteAnswer}>2. 結果を貼り付ける</button>
+              </div>
+              {note && <p className="muted">{note}</p>}
+              {via === "shortcut" && !handedOff && <p className="muted">初回は設定画面の手順でショートカット「{state.settings.llm.shortcut_name}」を作ってください。</p>}
+              <details>
+                <summary className="muted">うまくいかないとき(手でコピー・貼り付け)</summary>
+                <div className="field">
+                  <label>プロンプト</label>
+                  <textarea rows={4} readOnly value={buildHandoffPrompt(ctx, memo.body, state.settings.language)} onFocus={(e) => e.target.select()} />
+                </div>
+                <div className="field">
+                  <label>AI の回答</label>
+                  <textarea rows={4} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder='{"summary": {...}, "grade": {...}}' />
+                </div>
+                <button className="btn secondary small" disabled={running || !answer.trim()} onClick={() => accept(answer)}>読み込む</button>
+              </details>
+            </>
+          )}
+          {err && <p className="error">{err}</p>}
+        </>
+      )}
+      {summary && (
+        <>
+          <h2>要約</h2>
+          <p><strong>問題</strong> {summary.problem}</p>
+          <p><strong>手法</strong> {summary.method}</p>
+          <p><strong>結果</strong> {summary.results}</p>
+          <p><strong>限界</strong> {summary.limitations}</p>
+        </>
+      )}
+      {summary && grade && (
+        <>
+          <h2>採点 {grade.total} / 20</h2>
+          {grade.items.map((it) => (
+            <div className="grade-item" key={it.name}>
+              <span className="score">{it.score}/5</span>
+              <span><strong>{it.name}</strong><br /><span className="muted">{it.comment}</span></span>
+            </div>
+          ))}
+          <p>{grade.overall_comment}</p>
+          {grade.missing_points && grade.missing_points.length > 0 && (
+            <>
+              <div className="muted">本文にあってメモにない点</div>
+              <ul>{grade.missing_points.map((m, i) => <li key={i}>{m}</li>)}</ul>
+            </>
+          )}
+        </>
+      )}
+      {summary && <button className="btn secondary small" onClick={() => { setSummary(null); setGrade(null); }}>やり直す</button>}
+    </div>
+  );
+}

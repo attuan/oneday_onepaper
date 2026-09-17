@@ -23,11 +23,11 @@ export function CalendarPage({ state, go }: PageProps) {
   }, [logs]);
 
   const memosByDate = useMemo(() => {
-    const map = new Map<string, { paperId: string; title: string; score: number | null }[]>();
+    const map = new Map<string, { paperId: string; title: string; score: number | null; level: number }[]>();
     for (const mm of state.memos) {
       if (!mm.frontmatter.completed) continue;
       const p = state.papers.find((x) => x.id === mm.frontmatter.paper_id);
-      (map.get(mm.frontmatter.date) ?? map.set(mm.frontmatter.date, []).get(mm.frontmatter.date)!).push({ paperId: mm.frontmatter.paper_id, title: p?.title ?? mm.frontmatter.paper_id, score: mm.frontmatter.score_total });
+      (map.get(mm.frontmatter.date) ?? map.set(mm.frontmatter.date, []).get(mm.frontmatter.date)!).push({ paperId: mm.frontmatter.paper_id, title: p?.title ?? mm.frontmatter.paper_id, score: mm.frontmatter.score_total, level: mm.frontmatter.level });
     }
     return map;
   }, [state.memos, state.papers]);
@@ -63,7 +63,7 @@ export function CalendarPage({ state, go }: PageProps) {
               {reads.map((r, j) => (
                 <button key={j} type="button" className="cal-entry" title={`${r.title} のメモを開く`} onClick={() => go({ name: "editor", paperId: r.paperId })}>
                   <div className="t">{r.title}</div>
-                  {r.score !== null && <div className="s">{r.score} 点</div>}
+                  <div className="s">Lv{r.level}{r.score !== null && ` ・ ${r.score} 点`}</div>
                 </button>
               ))}
               {kind === "missed" && <div className="muted">未読</div>}

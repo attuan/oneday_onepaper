@@ -7,11 +7,14 @@ import { markRead, newPaper, queue, removePaper, reorderQueue, skipPaper, todays
 import { csvToPapers } from "@/core/papers/csv";
 import { bibtexToPapers, papersToBibtex } from "@/core/papers/bibtex";
 import { sendVia } from "@/core/notify";
-import { LINE_TOKEN_SECRET, SLACK_WEBHOOK_SECRET } from "@/core/notifyChannels";
+import { LINE_TOKEN_SECRET, SLACK_WEBHOOK_SECRET, sendSlack } from "@/core/notifyChannels";
+import { SHARE_SLACK_WEBHOOK_SECRET, completionShareText } from "@/core/share";
 import { countMemoChars, memoTemplate } from "@/core/memo/format";
-import { judgeCompletion } from "@/core/memo/completion";
+import { judgeCompletion, levelThresholds } from "@/core/memo/completion";
 import { AnthropicProvider } from "@/core/llm/anthropic";
 import { OllamaProvider } from "@/core/llm/ollama";
+import { OpenAiCompatProvider } from "@/core/llm/openaiCompat";
+import { parseHandoffResult } from "@/core/llm/handoff";
 import type { LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
@@ -37,6 +40,7 @@ export interface AppState {
 }
 
 export const API_KEY_SECRET = "anthropic_api_key";
+export const OPENAI_KEY_SECRET = "openai_compat_api_key";
 export const S2_KEY_SECRET = "semanticscholar_api_key";
 
 export async function bootstrap(): Promise<AppState> {
@@ -347,16 +351,16 @@ export async function openMemo(state: AppState, paper: Paper): Promise<Memo> {
   if (existing) return existing;
   return {
     path: "",
-    frontmatter: { paper_id: paper.id, date: state.today, chars: 0, completed: false, summary_input: "none", score_total: null },
+    frontmatter: { paper_id: paper.id, date: state.today, chars: 0, completed: false, level: 0, summary_input: "none", score_total: null },
     body: memoTemplate(paper),
   };
 }
 
 export async function persistMemo(state: AppState, memo: Memo, body: string): Promise<{ state: AppState; memo: Memo; newlyCompleted: boolean }> {
   const chars = countMemoChars(body);
-  const c = judgeCompletion(chars, state.settings.min_memo_chars, memo.frontmatter.completed);
+  const c = judgeCompletion(chars, levelThresholds(state.settings), memo.frontmatter.level);
   const newlyCompleted = c.completed && !memo.frontmatter.completed;
-  const fm = { ...memo.frontmatter, chars, completed: c.completed };
+  const fm = { ...memo.frontmatter, chars, completed: c.completed, level: c.level };
   if (newlyCompleted) fm.date = state.today; // 読了日は成立した日
   const saved = await saveMemo(state.settings.data_dir, fm, body, memo.path || undefined);
   let papers = state.papers;
@@ -366,6 +370,28 @@ export async function persistMemo(state: AppState, memo: Memo, body: string): Pr
   }
   const memos = await listMemos(state.settings.data_dir);
   return { state: { ...state, papers, memos }, memo: saved, newlyCompleted };
+}
+
+/**
+ * 読了を Slack に投稿する(仕様 10.1)。読了が成立したときに自動で、または編集画面のボタンから呼ぶ。
+ * 設定で有効にしていないときは何もせず false を返す
+ */
+export async function shareCompletion(state: AppState, memo: Memo): Promise<boolean> {
+  if (!state.settings.share.slack_on_complete) return false;
+  const paper = state.papers.find((p) => p.id === memo.frontmatter.paper_id);
+  if (!paper) throw new Error("論文が見つかりません");
+  const url = await secret.get(SHARE_SLACK_WEBHOOK_SECRET);
+  if (!url) throw new Error("共有先の Webhook URL が設定されていません");
+  const text = completionShareText({ paper, memoBody: memo.body, streak: currentStreak(state), displayName: state.settings.share.display_name });
+  await sendSlack(appFetch, url, text, "");
+  return true;
+}
+
+/** 設定画面の「テスト投稿」 */
+export async function sendTestShare(): Promise<void> {
+  const url = await secret.get(SHARE_SLACK_WEBHOOK_SECRET);
+  if (!url) throw new Error("共有先の Webhook URL が設定されていません");
+  await sendSlack(appFetch, url, "テスト投稿(One day, One paper)", "読了するとこのチャンネルに投稿されます");
 }
 
 // ---- 設定 ----
@@ -384,6 +410,15 @@ export async function setApiKey(key: string): Promise<void> {
   else await secret.delete(API_KEY_SECRET);
 }
 
+export async function getOpenAiKey(): Promise<string | null> {
+  return secret.get(OPENAI_KEY_SECRET);
+}
+
+export async function setOpenAiKey(key: string): Promise<void> {
+  if (key.trim()) await secret.set(OPENAI_KEY_SECRET, key.trim());
+  else await secret.delete(OPENAI_KEY_SECRET);
+}
+
 export async function getSemanticScholarKey(): Promise<string | null> {
   return secret.get(S2_KEY_SECRET);
 }
@@ -400,6 +435,15 @@ export async function getSlackWebhook(): Promise<string | null> {
 export async function setSlackWebhook(url: string): Promise<void> {
   if (url.trim()) await secret.set(SLACK_WEBHOOK_SECRET, url.trim());
   else await secret.delete(SLACK_WEBHOOK_SECRET);
+}
+
+export async function getShareWebhook(): Promise<string | null> {
+  return secret.get(SHARE_SLACK_WEBHOOK_SECRET);
+}
+
+export async function setShareWebhook(url: string): Promise<void> {
+  if (url.trim()) await secret.set(SHARE_SLACK_WEBHOOK_SECRET, url.trim());
+  else await secret.delete(SHARE_SLACK_WEBHOOK_SECRET);
 }
 
 export async function getLineToken(): Promise<string | null> {
@@ -444,6 +488,10 @@ export async function makeProvider(settings: Settings): Promise<LlmProvider> {
   if (settings.llm.provider === "ollama") {
     return new OllamaProvider({ model: settings.llm.model, baseUrl: settings.llm.base_url ?? undefined, fetch: appFetch });
   }
+  if (settings.llm.provider === "openai") {
+    if (!settings.llm.base_url) throw new Error("OpenAI 互換の接続先 URL が設定されていません。設定画面で入力してください");
+    return new OpenAiCompatProvider({ baseUrl: settings.llm.base_url, apiKey: await getOpenAiKey(), model: settings.llm.model, fetch: appFetch });
+  }
   const apiKey = await getApiKey();
   if (!apiKey) throw new Error("Anthropic の API キーが設定されていません。設定画面で入力してください");
   return new AnthropicProvider({ apiKey, model: settings.llm.model, fetch: appFetch });
@@ -471,12 +519,31 @@ export async function runAi(state: AppState, ctx: PaperContext, memo: Memo): Pro
   await recordUsage(state.settings, "summary", s.res);
   const g = await runGrade(llm, ctx, memo.body, lang);
   await recordUsage(state.settings, "grade", g.res);
-  await sql.saveAiOutput(ctx.paper.id, "summary", ctx.inputKind, s.output);
-  await sql.saveAiOutput(ctx.paper.id, "grade", ctx.inputKind, g.output);
-  const fm = { ...memo.frontmatter, summary_input: ctx.inputKind, score_total: g.output.total };
+  const st = await saveAiResult(state, memo, ctx.inputKind, s.output, g.output);
+  return { state: st, summary: s.output, grade: g.output };
+}
+
+async function saveAiResult(state: AppState, memo: Memo, inputKind: PaperContext["inputKind"], summary: SummaryOutput, grade: GradeOutput | null): Promise<AppState> {
+  const paperId = memo.frontmatter.paper_id;
+  await sql.saveAiOutput(paperId, "summary", inputKind, summary);
+  if (grade) await sql.saveAiOutput(paperId, "grade", inputKind, grade);
+  const fm = { ...memo.frontmatter, summary_input: inputKind, score_total: grade ? grade.total : memo.frontmatter.score_total };
   await saveMemo(state.settings.data_dir, fm, memo.body, memo.path || undefined);
-  const memos = await listMemos(state.settings.data_dir);
-  return { state: { ...state, memos }, summary: s.output, grade: g.output };
+  return { ...state, memos: await listMemos(state.settings.data_dir) };
+}
+
+/** 設定のプロバイダを今すぐ呼べるか。要約の実行方法が auto のときの判断に使う(仕様 7.4) */
+export async function apiUsable(settings: Settings): Promise<boolean> {
+  if (settings.llm.provider === "anthropic") return !!(await getApiKey());
+  if (settings.llm.provider === "openai") return !!settings.llm.base_url && !!settings.llm.model;
+  return true;
+}
+
+/** API を通さずにもらった回答(ショートカットか貼り付け)を読んで保存する(仕様 7.4)。使用量には数えない */
+export async function saveHandoffResult(state: AppState, memo: Memo, inputKind: PaperContext["inputKind"], text: string): Promise<{ state: AppState; summary: SummaryOutput; grade: GradeOutput | null }> {
+  const r = parseHandoffResult(text);
+  const st = await saveAiResult(state, memo, inputKind, r.summary, r.grade);
+  return { state: st, ...r };
 }
 
 async function recordUsage(settings: Settings, task: "summary" | "grade" | "recommend" | "rank", res: { inputTokens: number; outputTokens: number; model: string }) {

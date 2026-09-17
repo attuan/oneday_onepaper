@@ -40,11 +40,17 @@ export interface DayLog {
 
 export type SummaryInput = "abstract" | "fulltext" | "pasted" | "none";
 
+/** 読了の段階(仕様 6)。0 = 未読了、1 = ひとこと、2 = 要点、3 = しっかり */
+export type ReadLevel = 0 | 1 | 2 | 3;
+
 export interface MemoFrontmatter {
   paper_id: string;
   date: string;
   chars: number;
+  /** level >= 1 と同じ。連続記録はこれだけを見る */
   completed: boolean;
+  /** これまでに届いた一番上の段階。下がらない */
+  level: ReadLevel;
   summary_input: SummaryInput;
   score_total: number | null;
 }
@@ -55,7 +61,14 @@ export interface Memo {
   body: string;
 }
 
-export type LlmProviderName = "anthropic" | "ollama";
+/** openai は OpenAI 互換の行き先すべて(OpenAI / Gemini / OpenRouter / LM Studio など) */
+export type LlmProviderName = "anthropic" | "ollama" | "openai";
+/**
+ * 要約と採点をどこで実行するか(仕様 7.4)。
+ * api = 上のプロバイダ、shortcut = Apple のショートカット経由で Apple Intelligence、paste = プロンプトを好きな AI に貼る。
+ * auto は、API が使えれば api、だめなら Apple の端末で shortcut、それ以外は paste
+ */
+export type AiVia = "auto" | "api" | "shortcut" | "paste";
 /** 論文検索のソース。一覧と説明は core/scholar/sources.ts */
 export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "pubmed" | "cinii" | "jstage";
 export type LlmTask = "recommend" | "rank" | "summary" | "grade";
@@ -83,13 +96,21 @@ export interface Settings {
   day_boundary_hour: number;
   rest_weekdays: number[]; // 0=日 … 6=土
   rest_periods: RestPeriod[];
+  /** Lv1「ひとこと」の文字数。ここで読了が成立する */
+  quick_memo_chars: number;
+  /** Lv2「要点」の文字数 */
+  standard_memo_chars: number;
+  /** Lv3「しっかり」の文字数(段階を入れる前はこれが読了の条件だった) */
   min_memo_chars: number;
   extra_read_reward: "none" | "grace";
   language: "ja" | "en";
   llm: {
     provider: LlmProviderName;
     model: string;
-    base_url: string | null; // ollama 用
+    base_url: string | null; // ollama と openai 用
+    summary_via: AiVia;
+    /** shortcut で呼ぶショートカットの名前 */
+    shortcut_name: string;
   };
   grace: { enabled: boolean; per_month: number };
   search: {
@@ -104,6 +125,12 @@ export interface Settings {
     /** LINE の送信先(ユーザー ID)。トークンは secret に置く */
     line_to: string;
   };
+  /** 読了を研究室などの Slack に投稿する(仕様 10.1)。Webhook URL は secret に置く */
+  share: {
+    slack_on_complete: boolean;
+    /** 投稿に出す名前。空なら名前なしで投稿する */
+    display_name: string;
+  };
   /** ポモドーロ(仕様 11 v2)。要るかどうか判断するため、まずは載せておく */
   pomodoro: {
     enabled: boolean;
@@ -116,10 +143,12 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
   day_boundary_hour: 4,
   rest_weekdays: [],
   rest_periods: [],
+  quick_memo_chars: 20,
+  standard_memo_chars: 80,
   min_memo_chars: 200,
   extra_read_reward: "none",
   language: "ja",
-  llm: { provider: "anthropic", model: "claude-opus-5", base_url: null },
+  llm: { provider: "anthropic", model: "claude-opus-5", base_url: null, summary_via: "auto", shortcut_name: "OneDayOnePaper" },
   grace: { enabled: false, per_month: 0 },
   search: { sources: ["openalex", "semanticscholar", "arxiv"] },
   notifications: {
@@ -129,6 +158,7 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
     channels: ["os"],
     line_to: "",
   },
+  share: { slack_on_complete: false, display_name: "" },
   pomodoro: { enabled: true, work_minutes: 25, break_minutes: 5 },
 };
 

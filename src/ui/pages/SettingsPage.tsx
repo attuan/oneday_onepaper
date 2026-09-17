@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { exportData, getApiKey, getLineToken, getSemanticScholarKey, getSlackWebhook, importData, PartialImportError, platform, sendTestNotification, setApiKey, setLineToken, setSemanticScholarKey, setSlackWebhook, updateSettings } from "@/core/app";
+import { exportData, getApiKey, getOpenAiKey, setOpenAiKey, getLineToken, getSemanticScholarKey, getShareWebhook, getSlackWebhook, importData, PartialImportError, platform, sendTestNotification, sendTestShare, setApiKey, setLineToken, setSemanticScholarKey, setShareWebhook, setSlackWebhook, updateSettings } from "@/core/app";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { stashImportReport } from "../components/ImportNotice";
 import { SOURCES } from "@/core/scholar/sources";
+import { OPENAI_COMPAT_PRESETS } from "@/core/llm/openaiCompat";
 import type { NotifyChannel, Settings, SourceId } from "@/core/types";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+const PROVIDER_DEFAULTS: Record<Settings["llm"]["provider"], { model: string; base_url: string | null }> = {
+  anthropic: { model: "claude-opus-5", base_url: null },
+  openai: { model: "", base_url: OPENAI_COMPAT_PRESETS[0].baseUrl },
+  ollama: { model: "llama3.1", base_url: null },
+};
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -14,6 +21,8 @@ export function SettingsPage({ state, setState }: PageProps) {
   const [s, setS] = useState<Settings>(state.settings);
   const [key, setKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
+  const [oaKey, setOaKey] = useState("");
+  const [hasOaKey, setHasOaKey] = useState(false);
   const [s2Key, setS2Key] = useState("");
   const [hasS2Key, setHasS2Key] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -26,6 +35,9 @@ export function SettingsPage({ state, setState }: PageProps) {
   const [hasSlack, setHasSlack] = useState(false);
   const [lineTok, setLineTok] = useState("");
   const [hasLine, setHasLine] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const [hasShare, setHasShare] = useState(false);
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
   const [testing, setTesting] = useState<NotifyChannel | null>(null);
   const web = platform() === "web";
@@ -33,9 +45,11 @@ export function SettingsPage({ state, setState }: PageProps) {
 
   useEffect(() => {
     getApiKey().then((k) => setHasKey(!!k));
+    getOpenAiKey().then((k) => setHasOaKey(!!k));
     getSemanticScholarKey().then((k) => setHasS2Key(!!k));
     getSlackWebhook().then((k) => setHasSlack(!!k));
     getLineToken().then((k) => setHasLine(!!k));
+    getShareWebhook().then((k) => setHasShare(!!k));
   }, []);
 
   const save = async () => {
@@ -45,6 +59,11 @@ export function SettingsPage({ state, setState }: PageProps) {
         await setApiKey(key);
         setHasKey(true);
         setKey("");
+      }
+      if (oaKey) {
+        await setOpenAiKey(oaKey);
+        setHasOaKey(true);
+        setOaKey("");
       }
       if (s2Key) {
         await setSemanticScholarKey(s2Key);
@@ -93,6 +112,11 @@ export function SettingsPage({ state, setState }: PageProps) {
       setHasLine(true);
       setLineTok("");
     }
+    if (shareUrl) {
+      await setShareWebhook(shareUrl);
+      setHasShare(true);
+      setShareUrl("");
+    }
   };
 
   const toggleChannel = (c: NotifyChannel) =>
@@ -112,6 +136,17 @@ export function SettingsPage({ state, setState }: PageProps) {
     }
   };
 
+  const testShare = async () => {
+    setShareMsg(null);
+    try {
+      await saveNotifySecrets();
+      await sendTestShare();
+      setShareMsg("テスト投稿しました");
+    } catch (e) {
+      setShareMsg(`テスト投稿に失敗: ${errText(e)}`);
+    }
+  };
+
   const toggleSource = (id: SourceId) =>
     setS({ ...s, search: { ...s.search, sources: s.search.sources.includes(id) ? s.search.sources.filter((x) => x !== id) : [...s.search.sources, id] } });
 
@@ -125,7 +160,14 @@ export function SettingsPage({ state, setState }: PageProps) {
         <h2 style={{ marginTop: 0 }}>スケジュール</h2>
         <div className="row">
           <div className="field"><label>日付の切り替え時刻</label><input type="number" min={0} max={23} value={s.day_boundary_hour} onChange={(e) => setS({ ...s, day_boundary_hour: Number(e.target.value) })} /></div>
-          <div className="field"><label>読了に必要な文字数</label><input type="number" min={0} value={s.min_memo_chars} onChange={(e) => setS({ ...s, min_memo_chars: Number(e.target.value) })} /></div>
+        </div>
+        <div className="field">
+          <label>読了の段階(本文の文字数)。Lv1 に届けば読了になり、連続記録が続く</label>
+          <div className="row">
+            <label>Lv1 ひとこと <input type="number" min={0} value={s.quick_memo_chars} onChange={(e) => setS({ ...s, quick_memo_chars: Number(e.target.value) })} /></label>
+            <label>Lv2 要点 <input type="number" min={0} value={s.standard_memo_chars} onChange={(e) => setS({ ...s, standard_memo_chars: Number(e.target.value) })} /></label>
+            <label>Lv3 しっかり <input type="number" min={0} value={s.min_memo_chars} onChange={(e) => setS({ ...s, min_memo_chars: Number(e.target.value) })} /></label>
+          </div>
         </div>
         <div className="field">
           <label>休みの曜日</label>
@@ -166,8 +208,9 @@ export function SettingsPage({ state, setState }: PageProps) {
         <div className="row">
           <div className="field">
             <label>プロバイダ</label>
-            <select value={s.llm.provider} onChange={(e) => setS({ ...s, llm: { ...s.llm, provider: e.target.value as Settings["llm"]["provider"], model: e.target.value === "ollama" ? "llama3.1" : "claude-opus-5" } })}>
+            <select value={s.llm.provider} onChange={(e) => setS({ ...s, llm: { ...s.llm, ...PROVIDER_DEFAULTS[e.target.value as Settings["llm"]["provider"]], provider: e.target.value as Settings["llm"]["provider"] } })}>
               <option value="anthropic">Anthropic API</option>
+              <option value="openai">OpenAI 互換(OpenAI / Gemini / OpenRouter / LM Studio など)</option>
               <option value="ollama">Ollama(ローカル)</option>
             </select>
           </div>
@@ -180,13 +223,48 @@ export function SettingsPage({ state, setState }: PageProps) {
             </select>
           </div>
         </div>
-        {s.llm.provider === "anthropic" ? (
+        {s.llm.provider === "anthropic" && (
           <div className="field">
             <label>API キー({keyStore}。{hasKey ? "設定済み" : "未設定"})</label>
             <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "変更する場合のみ入力" : "sk-ant-..."} />
           </div>
-        ) : (
+        )}
+        {s.llm.provider === "openai" && (
+          <>
+            <div className="row">
+              <div className="field">
+                <label>接続先</label>
+                <select value={OPENAI_COMPAT_PRESETS.some((p) => p.baseUrl === s.llm.base_url) ? s.llm.base_url! : ""} onChange={(e) => e.target.value && setS({ ...s, llm: { ...s.llm, base_url: e.target.value } })}>
+                  <option value="">(URL を直接入力)</option>
+                  {OPENAI_COMPAT_PRESETS.map((p) => <option key={p.baseUrl} value={p.baseUrl}>{p.label}{p.note && ` — ${p.note}`}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}><label>URL(/chat/completions の手前まで)</label><input value={s.llm.base_url ?? ""} placeholder="https://api.openai.com/v1" onChange={(e) => setS({ ...s, llm: { ...s.llm, base_url: e.target.value || null } })} /></div>
+            </div>
+            <div className="field">
+              <label>API キー({keyStore}。{hasOaKey ? "設定済み" : "未設定"}。ローカルのサーバーなら空でよい)</label>
+              <input type="password" value={oaKey} onChange={(e) => setOaKey(e.target.value)} placeholder={hasOaKey ? "変更する場合のみ入力" : ""} />
+            </div>
+            <p className="muted">モデル名は接続先のものを上の欄に入れてください。単価表に無いモデルは使用量の金額が $0 と出ます。{web && " ブラウザ版では、接続先が CORS を許可していないと届きません。"}</p>
+          </>
+        )}
+        {s.llm.provider === "ollama" && (
           <div className="field"><label>Ollama の URL</label><input value={s.llm.base_url ?? ""} placeholder="http://localhost:11434" onChange={(e) => setS({ ...s, llm: { ...s.llm, base_url: e.target.value || null } })} /></div>
+        )}
+
+        <h3>API キーなしで要約と採点を使う</h3>
+        <p className="muted">メモの画面の「実行方法」で選べます。キーが無いときは自動でこちらになります。論文を探すときの順位付けには使えません(キーワード検索と被引用数順になります)。</p>
+        <p><strong>好きな AI に貼り付ける</strong><span className="muted"> — プロンプトをコピーして ChatGPT や Claude などに貼り、返ってきた JSON を貼り戻します。どの端末でも使えます。</span></p>
+        <p><strong>Apple Intelligence(ショートカット経由)</strong><span className="muted"> — iPadOS / iOS / macOS 26 以降で Apple Intelligence が使える端末。{web ? "初回だけ、ショートカット App で次の 3 つのアクションを並べたショートカットを作ってください。" : "ブラウザ版でだけ使えます。"}</span></p>
+        {web && (
+          <>
+            <ol className="muted">
+              <li>「クリップボードを取得」</li>
+              <li>「モデルを使用」— モデルは Private Cloud Compute(おすすめ)かオンデバイス。プロンプトの欄に 1 の「クリップボード」を入れる</li>
+              <li>「クリップボードにコピー」— 2 の「応答」を入れる</li>
+            </ol>
+            <div className="field"><label>ショートカットの名前(作ったものと同じにする)</label><input value={s.llm.shortcut_name} onChange={(e) => setS({ ...s, llm: { ...s.llm, shortcut_name: e.target.value } })} /></div>
+          </>
         )}
       </div>
 
@@ -254,6 +332,26 @@ export function SettingsPage({ state, setState }: PageProps) {
           {web && " ブラウザ版から送るには CORS 中継(VITE_PROXY_BASE)が必要です。"}
         </p>
         {testMsg && <p className={testMsg.startsWith("テスト送信に失敗") ? "error" : "ok"}>{testMsg}</p>}
+      </div>
+
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>読了を Slack に共有</h2>
+        <div className="row">
+          <label><input type="checkbox" checked={s.share.slack_on_complete} onChange={(e) => setS({ ...s, share: { ...s.share, slack_on_complete: e.target.checked } })} /> 読了したら自動で投稿する</label>
+          <button className="btn secondary small" disabled={!hasShare && !shareUrl} onClick={testShare}>テスト投稿</button>
+        </div>
+        <p className="muted">研究室などのチャンネルに、論文のタイトル・連続記録・メモの最初の 1 行を投稿します。メモ全体は送りません。上の通知(「まだ読んでいません」など)はここには流れません。</p>
+        <div className="row">
+          <div className="field" style={{ flex: 2 }}>
+            <label>共有先の Webhook URL({keyStore}。{hasShare ? "設定済み" : "未設定"})</label>
+            <input type="password" value={shareUrl} onChange={(e) => setShareUrl(e.target.value)} placeholder={hasShare ? "変更する場合のみ入力" : "https://hooks.slack.com/services/..."} />
+          </div>
+          <div className="field" style={{ flex: 1 }}>
+            <label>投稿に出す名前(任意)</label>
+            <input value={s.share.display_name} onChange={(e) => setS({ ...s, share: { ...s.share, display_name: e.target.value } })} />
+          </div>
+        </div>
+        {shareMsg && <p className={shareMsg.startsWith("テスト投稿に失敗") ? "error" : "ok"}>{shareMsg}</p>}
       </div>
 
       <div className="card">

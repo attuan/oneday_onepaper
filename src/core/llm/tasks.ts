@@ -17,7 +17,7 @@ export interface PaperContext {
   inputKind: "abstract" | "fulltext" | "pasted";
 }
 
-function paperHeader(p: Paper): string {
+export function paperHeader(p: Paper): string {
   const authors = p.authors.length ? p.authors.join(", ") : "(著者不明)";
   return `タイトル: ${p.title}\n著者: ${authors}\n年: ${p.year ?? "?"}${p.venue ? `\n掲載: ${p.venue}` : ""}`;
 }
@@ -91,11 +91,13 @@ export async function runSummary(llm: LlmProvider, ctx: PaperContext, language: 
 
 export async function runGrade(llm: LlmProvider, ctx: PaperContext, memoBody: string, language: string) {
   const res = await llm.complete(buildGradeRequest(ctx, memoBody, language));
-  const output = parseJsonLoose<GradeOutput>(res.text);
-  // 範囲はスキーマで縛れないのでここで丸め、total もモデルの申告を信じず再計算
-  output.items = output.items.map((it) => ({ ...it, score: Math.max(1, Math.min(5, Math.round(Number(it.score) || 1))) }));
-  output.total = output.items.reduce((a, b) => a + b.score, 0);
-  return { output, res };
+  return { output: normalizeGrade(parseJsonLoose<GradeOutput>(res.text)), res };
+}
+
+/** 範囲はスキーマで縛れないのでここで丸め、total もモデルの申告を信じず再計算 */
+export function normalizeGrade(output: GradeOutput): GradeOutput {
+  const items = output.items.map((it) => ({ ...it, score: Math.max(1, Math.min(5, Math.round(Number(it.score) || 1))) }));
+  return { ...output, items, total: items.reduce((a, b) => a + b.score, 0) };
 }
 
 export type TaskResult<T> = { output: T; res: LlmResponse };

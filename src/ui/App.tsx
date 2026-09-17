@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { handoffReturnPaperId } from "@/core/llm/handoff";
 import type { AppState } from "@/core/app";
 import { bootstrap, currentStreak, rollover, today, todaysReads } from "@/core/app";
 import { runNotifications } from "@/core/notify";
@@ -44,10 +45,15 @@ const NAV: { page: Page; label: string }[] = [
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>({ name: "home" });
+  // ショートカットから戻ってきたときは、頼んだ論文のメモを開く(仕様 7.4)
+  const [page, setPage] = useState<Page>(() => {
+    const paperId = handoffReturnPaperId(location.href);
+    return paperId ? { name: "editor", paperId } : { name: "home" };
+  });
 
   useEffect(() => {
     bootstrap().then(setState, (e) => setError(String(e)));
+    if (handoffReturnPaperId(location.href)) history.replaceState(null, "", location.pathname);
   }, []);
 
   // 1 分ごと: 日付境界を跨いだら判定(仕様 5.1)、通知の時刻なら送る(仕様 10.4)
