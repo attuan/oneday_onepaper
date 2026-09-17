@@ -162,11 +162,22 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
   pomodoro: { enabled: true, work_minutes: 25, break_minutes: 5 },
 };
 
+export type SummaryField = "problem" | "method" | "results" | "limitations";
+
+/** 要約の根拠(仕様 7.2)。quote は LLM が原文から抜き出したと言っている文、found はそれが渡したテキストに本当にあったか */
+export interface SummaryEvidence {
+  field: SummaryField;
+  quote: string;
+  found: boolean;
+}
+
 export interface SummaryOutput {
   problem: string;
   method: string;
   results: string;
   limitations: string;
+  /** 入れる前の要約には無い */
+  evidence?: SummaryEvidence[];
 }
 
 export interface GradeItem {

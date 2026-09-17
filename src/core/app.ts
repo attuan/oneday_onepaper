@@ -540,9 +540,9 @@ export async function apiUsable(settings: Settings): Promise<boolean> {
 }
 
 /** API を通さずにもらった回答(ショートカットか貼り付け)を読んで保存する(仕様 7.4)。使用量には数えない */
-export async function saveHandoffResult(state: AppState, memo: Memo, inputKind: PaperContext["inputKind"], text: string): Promise<{ state: AppState; summary: SummaryOutput; grade: GradeOutput | null }> {
-  const r = parseHandoffResult(text);
-  const st = await saveAiResult(state, memo, inputKind, r.summary, r.grade);
+export async function saveHandoffResult(state: AppState, memo: Memo, ctx: PaperContext, text: string): Promise<{ state: AppState; summary: SummaryOutput; grade: GradeOutput | null }> {
+  const r = parseHandoffResult(text, ctx.text);
+  const st = await saveAiResult(state, memo, ctx.inputKind, r.summary, r.grade);
   return { state: st, ...r };
 }
 

@@ -5,7 +5,7 @@
 
 import type { GradeOutput, SummaryOutput } from "@/core/types";
 import { LlmError, parseJsonLoose } from "./provider";
-import { FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, normalizeGrade, paperHeader, type PaperContext } from "./tasks";
+import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, normalizeGrade, paperHeader, verifyEvidence, type PaperContext } from "./tasks";
 
 /** 戻り先の URL に付けるパラメータ。値は論文 ID */
 export const RETURN_PARAM = "ai_return";
@@ -31,12 +31,13 @@ export function buildHandoffPrompt(ctx: PaperContext, memoBody: string, language
     "[返す JSON の形]",
     JSON.stringify(
       {
-        summary: { problem: "何を解いた / 論じた問題か", method: "手法の要点", results: "結果・主張", limitations: "限界・注意点" },
+        summary: { problem: "何を解いた / 論じた問題か", method: "手法の要点", results: "結果・主張", limitations: "限界・注意点", evidence: [{ field: "problem", quote: "原文そのまま" }] },
         grade: { items: GRADE_ITEMS.map((name) => ({ name, score: 3, comment: "…" })), overall_comment: "2〜3 文", good_points: [], missing_points: [], misreadings: [], next_step: "1 文" },
       },
       null,
       1,
     ),
+    `summary.${EVIDENCE_RULES}`,
     "grade.items はこの 4 項目を、この順・この name で。grade の残りは次のとおり:",
     FEEDBACK_RULES,
   ].join("\n");
@@ -50,7 +51,8 @@ export interface HandoffResult {
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "不明");
 
-export function parseHandoffResult(text: string): HandoffResult {
+/** sourceText は頼んだときに渡した論文情報。根拠の引用が本当にそこにあるかを確かめるのに使う */
+export function parseHandoffResult(text: string, sourceText: string): HandoffResult {
   if (!text.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
   const raw = parseJsonLoose<Record<string, unknown>>(text);
   // summary を包まずに 4 項目を直に返すモデルもある
@@ -58,7 +60,7 @@ export function parseHandoffResult(text: string): HandoffResult {
   if (!["problem", "method", "results", "limitations"].some((k) => typeof s[k] === "string")) {
     throw new LlmError("要約が見つかりません。AI の回答の JSON 全体をコピーしてください", "bad_output");
   }
-  const summary: SummaryOutput = { problem: str(s.problem), method: str(s.method), results: str(s.results), limitations: str(s.limitations) };
+  const summary = verifyEvidence({ problem: str(s.problem), method: str(s.method), results: str(s.results), limitations: str(s.limitations), evidence: s.evidence as SummaryOutput["evidence"] }, sourceText);
 
   const g = raw.grade as Partial<GradeOutput> | undefined;
   let grade: GradeOutput | null = null;

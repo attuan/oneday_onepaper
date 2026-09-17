@@ -294,7 +294,7 @@ interface LlmProvider {
 |---|---|---|---|
 | `recommend` | キーワード、件数 | 検索クエリの配列(学術 API に投げる用) | ユーザーが「論文を探す」を実行 |
 | `rank` | 候補論文の書誌 + アブスト(最大 30 件)、キーワード、並べ替え基準 | `[{ id, rank, reason }]` | recommend の後、または LLM 並べ替え |
-| `summary` | タイトル + アブスト、または全文 | `{ problem, method, results, limitations }` | 読了後、ユーザーが実行 |
+| `summary` | タイトル + アブスト、または全文 | `{ problem, method, results, limitations, evidence: [{ field, quote }] }` | 読了後、ユーザーが実行 |
 | `grade` | メモ本文 + summary と同じ入力 | `{ items: [{ name, score(1-5), comment }], total, overall_comment, good_points, missing_points, misreadings, next_step }` | summary と同時 |
 
 採点項目(固定 4 つ):
@@ -302,6 +302,11 @@ interface LlmProvider {
 2. 手法を自分の言葉で説明できているか
 3. 結果を正しく捉えているか
 4. 自分の視点(疑問・応用)があるか
+
+**要約の根拠**(2026-09-18): `evidence` は、各項目の根拠として LLM が原文から一字一句抜き出した文。LLM の申告は信じず、
+渡したテキストに本当にあるかをアプリが照合して `found` を付ける(空白・改行・引用符の違いは無視。8 文字未満は根拠にしない)。
+画面では各項目の下に引用を出し、見つからなかったものは「原文に見つかりません」と示す。アブストだけから作った要約にはその旨のバッジを出す。
+ページ番号は出さない(抽出した本文にページの情報が無いため)。
 
 `grade` は「メモに書いてあること」を評価する。メモが短いこと自体は責めない(Lv1 の日があるため)。
 

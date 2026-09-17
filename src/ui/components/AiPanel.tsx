@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
 import { apiUsable, estimateAiCost, extractFulltext, hasPdf, loadAiOutputs, platform, runAi, saveHandoffResult, updateSettings } from "@/core/app";
-import type { AiVia, GradeOutput, Memo, Paper, SummaryOutput } from "@/core/types";
+import type { AiVia, GradeOutput, Memo, Paper, SummaryField, SummaryOutput } from "@/core/types";
 import { buildHandoffPrompt, handoffReturnUrl, shortcutRunUrl } from "@/core/llm/handoff";
 import type { PaperContext } from "@/core/llm/tasks";
 import { formatUsd } from "@/core/usage/cost";
 import { clearPending, loadPending, savePending } from "../handoffPending";
 
 type Via = Exclude<AiVia, "auto">;
+
+const SUMMARY_LABELS: [SummaryField, string][] = [["problem", "問題"], ["method", "手法"], ["results", "結果"], ["limitations", "限界"]];
 
 /** ショートカット App がある端末か。iPad の Safari は Macintosh を名乗る */
 const appleDevice = () => /iPad|iPhone|Macintosh/.test(navigator.userAgent);
@@ -26,12 +28,15 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
   const [extracting, setExtracting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [via, setVia] = useState<Via | null>(null);
+  /** 表示中の要約が何から作られたか */
+  const [savedKind, setSavedKind] = useState<string | null>(null);
   const [handedOff, setHandedOff] = useState(!!pending);
   const [answer, setAnswer] = useState("");
   const [note, setNote] = useState<string | null>(pending ? "戻ってきました。「2. 結果を貼り付ける」を押してください。" : null);
 
   useEffect(() => {
     loadAiOutputs(paper.id).then((o) => {
+      setSavedKind(o.inputKind);
       setSummary(o.summary);
       setGrade(o.grade);
     });
@@ -81,6 +86,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
     setErr(null);
     try {
       const r = await runAi(state, ctx, memo);
+      setSavedKind(ctx.inputKind);
       setState(r.state);
       setSummary(r.summary);
       setGrade(r.grade);
@@ -114,8 +120,9 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
     setRunning(true);
     setErr(null);
     try {
-      const r = await saveHandoffResult(state, memo, inputKind, raw);
+      const r = await saveHandoffResult(state, memo, ctx, raw);
       clearPending();
+      setSavedKind(ctx.inputKind);
       setState(r.state);
       setSummary(r.summary);
       setGrade(r.grade);
@@ -179,7 +186,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
                 <button className={handedOff ? "btn secondary" : "btn"} disabled={running || extracting} onClick={handOff}>
                   {via === "shortcut" ? "1. Apple Intelligence で実行" : "1. プロンプトをコピー"}
                 </button>
-                <button className={handedOff ? "btn" : "btn secondary"} disabled={running} onClick={pasteAnswer}>2. 結果を貼り付ける</button>
+                <button className={handedOff ? "btn" : "btn secondary"} disabled={running || extracting} onClick={pasteAnswer}>2. 結果を貼り付ける</button>
               </div>
               {note && <p className="muted">{note}</p>}
               {via === "shortcut" && !handedOff && <p className="muted">初回は設定画面の手順でショートカット「{state.settings.llm.shortcut_name}」を作ってください。</p>}
@@ -203,10 +210,18 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
       {summary && (
         <>
           <h2>要約</h2>
-          <p><strong>問題</strong> {summary.problem}</p>
-          <p><strong>手法</strong> {summary.method}</p>
-          <p><strong>結果</strong> {summary.results}</p>
-          <p><strong>限界</strong> {summary.limitations}</p>
+          {savedKind === "abstract" && <p className="badge">アブストラクトだけから作った要約です。本文の詳細は入っていません</p>}
+          {SUMMARY_LABELS.map(([field, label]) => (
+            <div key={field}>
+              <p><strong>{label}</strong> {summary[field]}</p>
+              {summary.evidence?.filter((e) => e.field === field).map((e, i) => (
+                <blockquote key={i} className={e.found ? "evidence" : "evidence unverified"}>
+                  {e.quote}
+                  <span className="muted">{e.found ? " — 原文にあります" : " — 原文に見つかりません。要約のこの部分は確かめてください"}</span>
+                </blockquote>
+              ))}
+            </div>
+          ))}
         </>
       )}
       {summary && grade && (

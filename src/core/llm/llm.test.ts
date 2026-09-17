@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseJsonLoose } from "./provider";
-import { runGrade } from "./tasks";
+import { runGrade, verifyEvidence } from "./tasks";
 import { estimateCostUsd, priceFor, roughTokenCount } from "@/core/usage/cost";
 import { newPaper } from "@/core/papers/queue";
 import type { LlmProvider } from "./provider";
@@ -63,5 +63,21 @@ describe("runGrade", () => {
     expect(r.output.misreadings).toEqual([]);
     expect(r.output.good_points).toEqual([]);
     expect(r.output.next_step).toBe("");
+  });
+});
+
+describe("verifyEvidence", () => {
+  const base = { problem: "", method: "", results: "", limitations: "" };
+  it("空白・改行・引用符の違いは無視して照合する。無い引用は found: false", () => {
+    const src = "We propose a new simple network\narchitecture, the \u201cTransformer\u201d, based solely on attention.";
+    const r = verifyEvidence({ ...base, evidence: [
+      { field: "method", quote: 'architecture, the "Transformer", based solely', found: false },
+      { field: "results", quote: "achieves 28.4 BLEU on WMT 2014", found: true },
+    ] }, src);
+    expect(r.evidence?.map((e) => e.found)).toEqual([true, false]);
+  });
+  it("形の違うもの・短すぎる引用は根拠にしない", () => {
+    const r = verifyEvidence({ ...base, evidence: [{ field: "other", quote: "x" }, { field: "method", quote: "the" }, null] as never }, "the method");
+    expect(r.evidence).toEqual([{ field: "method", quote: "the", found: false }]);
   });
 });

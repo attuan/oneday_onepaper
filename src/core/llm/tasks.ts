@@ -1,6 +1,6 @@
 // LLM タスク(仕様 7.2): recommend / rank / summary / grade
 
-import type { GradeOutput, Paper, SummaryOutput } from "@/core/types";
+import type { GradeOutput, Paper, SummaryEvidence, SummaryField, SummaryOutput } from "@/core/types";
 import { parseJsonLoose, type LlmProvider, type LlmResponse } from "./provider";
 
 export const GRADE_ITEMS = [
@@ -29,16 +29,49 @@ const SUMMARY_SCHEMA = {
     method: { type: "string" },
     results: { type: "string" },
     limitations: { type: "string" },
+    evidence: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { field: { type: "string", enum: ["problem", "method", "results", "limitations"] }, quote: { type: "string" } },
+        required: ["field", "quote"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ["problem", "method", "results", "limitations"],
+  required: ["problem", "method", "results", "limitations", "evidence"],
   additionalProperties: false,
 };
+
+/** 根拠の抜き出し方。API を通さない道(handoff.ts)でも同じ文面を使う */
+export const EVIDENCE_RULES =
+  "evidence: 各項目の根拠になる文を、上で渡したテキストから一字一句そのまま抜き出す(項目ごとに 1〜2 個、1 個 200 字以内。field は problem / method / results / limitations)。翻訳・言い換え・省略をしない。根拠が無い項目は入れない。";
+
+const SUMMARY_FIELDS: SummaryField[] = ["problem", "method", "results", "limitations"];
+
+/** 照合用に、空白・改行・引用符の違いをならす。PDF から抜いた本文は改行の位置がばらばらなため */
+function squash(text: string): string {
+  return text.toLowerCase().replace(/[“”„‟]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, "");
+}
+
+/** LLM が「原文にある」と言った引用が、渡したテキストに本当にあるかを確かめる。LLM の申告は信じない */
+export function verifyEvidence(summary: SummaryOutput, sourceText: string): SummaryOutput {
+  const hay = squash(sourceText);
+  const raw: unknown[] = Array.isArray(summary.evidence) ? summary.evidence : [];
+  const evidence: SummaryEvidence[] = raw.flatMap((e) => {
+    const { field, quote } = (e ?? {}) as Partial<SummaryEvidence>;
+    if (!SUMMARY_FIELDS.includes(field as SummaryField) || typeof quote !== "string" || !quote.trim()) return [];
+    const needle = squash(quote.replace(/(\.\.\.|…)$/, ""));
+    return [{ field: field as SummaryField, quote: quote.trim(), found: needle.length >= 8 && hay.includes(needle) }];
+  });
+  return { ...summary, evidence };
+}
 
 export function buildSummaryRequest(ctx: PaperContext, language: string) {
   const lang = language === "en" ? "English" : "日本語";
   return {
     system: `あなたは研究者の論文読解を助けるアシスタントです。与えられた論文情報から、事実に基づいて簡潔に要約してください。情報が不足している項目は推測せず「不明」と書いてください。出力は${lang}で。`,
-    user: `${paperHeader(ctx.paper)}\n\n[${ctx.inputKind === "abstract" ? "アブストラクト" : ctx.inputKind === "fulltext" ? "本文" : "ユーザー提供テキスト"}]\n${ctx.text}\n\n各項目 2〜4 文で: problem(何を解いた/論じた問題か), method(手法の要点), results(結果・主張), limitations(限界・注意点)`,
+    user: `${paperHeader(ctx.paper)}\n\n[${ctx.inputKind === "abstract" ? "アブストラクト" : ctx.inputKind === "fulltext" ? "本文" : "ユーザー提供テキスト"}]\n${ctx.text}\n\n各項目 2〜4 文で: problem(何を解いた/論じた問題か), method(手法の要点), results(結果・主張), limitations(限界・注意点)\n${EVIDENCE_RULES}`,
     schema: SUMMARY_SCHEMA,
     maxTokens: 2048,
     effort: "medium" as const,
@@ -97,7 +130,7 @@ export function buildGradeRequest(ctx: PaperContext, memoBody: string, language:
 
 export async function runSummary(llm: LlmProvider, ctx: PaperContext, language: string) {
   const res = await llm.complete(buildSummaryRequest(ctx, language));
-  return { output: parseJsonLoose<SummaryOutput>(res.text), res };
+  return { output: verifyEvidence(parseJsonLoose<SummaryOutput>(res.text), ctx.text), res };
 }
 
 export async function runGrade(llm: LlmProvider, ctx: PaperContext, memoBody: string, language: string) {
