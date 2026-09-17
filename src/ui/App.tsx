@@ -12,7 +12,7 @@ import { PapersPage } from "./pages/PapersPage";
 import { ExplorePage } from "./pages/ExplorePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
-import { LessonsPage } from "./pages/LessonsPage";
+import { GuidePage, LessonsPage } from "./pages/LessonsPage";
 import { ImportNotice } from "./components/ImportNotice";
 
 export type Page =
@@ -24,6 +24,7 @@ export type Page =
   | { name: "explore" }
   | { name: "usage" }
   | { name: "lessons" }
+  | { name: "guide" }
   | { name: "settings" };
 
 export interface PageProps {
@@ -40,6 +41,7 @@ const NAV: { page: Page; label: string; advanced?: boolean }[] = [
   { page: { name: "calendar" }, label: "カレンダー" },
   { page: { name: "usage" }, label: "API 使用量", advanced: true },
   { page: { name: "lessons" }, label: "講座" },
+  { page: { name: "guide" }, label: "使い方" },
   { page: { name: "settings" }, label: "設定" },
 ];
 
@@ -101,6 +103,7 @@ export function App() {
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;
     case "lessons": body = <LessonsPage />; break;
+    case "guide": body = <GuidePage />; break;
     case "settings": body = <SettingsPage {...props} />; break;
   }
 

@@ -10,6 +10,8 @@
 
 要するに論文レコメンドアプリ&論文メモアプリ。
 
+**使い方**はアプリの中の「使い方」にある(元の文章は [src/content/guide/](src/content/guide/)。3 分で始める / 毎日の流れ / AI を使う / 続けるための仕組み / 研究室で使う / スマホで使う / データと詳しい機能)。
+
 ## 各機能の関係(入力→出力)(LLMを使う場合は、apiキー、もしくはローカルにすでにある何か)
 興味のあるキーワード→読むべき論文リストをLLMのdeepreserchとかの検索機能で出力(csvとかのデータ。題目、著者、出版年、可能であればPDF、リンク、書誌情報、(読むべき理由)、他にも必要があれば。) (読むべき論文の提示)
 
@@ -234,7 +236,7 @@ src/core/     本体ロジック(Tauri 非依存。テスト可能)
     install.ts   起動時にどの実装を使うか決める
   archive.ts  データの書き出し・取り込み(ZIP)
   app.ts      UI から呼ぶ操作
-src/content/  講座(静的 Markdown)
+src/content/  講座(lessons/)と使い方(guide/)。静的 Markdown
 src/ui/       React 画面
 src-tauri/    Rust(ファイル、SQLite、キーチェーンのみ)
 proxy/        ブラウザ版の CORS 中継(Cloudflare Workers)

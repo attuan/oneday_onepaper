@@ -48,7 +48,7 @@ export function HomePage({ state, setState, go }: PageProps) {
       ) : (
         <div className="card hero">
           <p className="title">読む論文がありません</p>
-          <p className="muted">論文リストに追加してください。リストが空の日は未読扱いにはなりませんが、記録も伸びません。</p>
+          <p className="muted">論文リストに追加してください。リストが空の日は未読扱いにはなりませんが、記録も伸びません。はじめての方は<button className="link" onClick={() => go({ name: "guide" })}>使い方</button>をどうぞ(3 分で始められます)。</p>
           <div className="row">
             <button className="btn" onClick={() => go({ name: "explore" })}>論文を探す</button>
             <button className="btn secondary" onClick={() => go({ name: "papers" })}>手入力・CSV・DOI で追加</button>
