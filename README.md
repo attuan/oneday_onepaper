@@ -104,14 +104,29 @@ echo 'VITE_PROXY_BASE=https://oneday-onepaper-proxy.<アカウント>.workers.de
 
 Ollama をブラウザ版から使うときは、Ollama 側で `OLLAMA_ORIGINS` にブラウザ版の URL を入れておく。
 
-### 公開
+### 公開(GitHub Pages)
+
+`.github/workflows/pages.yml` が、`main` に push するたびにビルドして GitHub Pages に置く。
+公開先は `https://<ユーザー名>.github.io/<リポジトリ名>/`。サーバーは要らない。
+
+初回だけリポジトリ側で設定する:
+
+1. Settings → Pages → Build and deployment → Source を **GitHub Actions** にする
+2. (任意)CORS 中継を使うなら、Settings → Secrets and variables → Actions → **Variables** に
+   `VITE_PROXY_BASE` = `https://oneday-onepaper-proxy.<アカウント>.workers.dev` を足す。
+   無ければ中継なしで公開される(arXiv API / J-STAGE / LINE 通知が使えない)
+3. `proxy/wrangler.toml` の `ALLOWED_ORIGINS` に `https://<ユーザー名>.github.io` を足して `npx wrangler@4 deploy` し直す
+
+フォークして自分用に公開するときも同じ手順。サブパスはリポジトリ名から自動で決まる。
+
+手元でビルドだけするなら:
 
 ```sh
-npm run build                  # dist/ に静的ファイルができる
+npm run build                                   # dist/ に静的ファイルができる(ルート配信用)
+BASE_PATH=/リポジトリ名/ npm run build            # サブパスに置くとき
 ```
 
-`dist/` を Cloudflare Pages / Netlify / Vercel などに置けばよい。サーバーは要らない。
-GitHub Pages のようにサブパス(`/リポジトリ名/`)に置くときは `npx vite build --base=/リポジトリ名/` でビルドする。
+`dist/` は Cloudflare Pages / Netlify / Vercel などに置いてもよい。
 
 ### デスクトップ版からの移行
 
