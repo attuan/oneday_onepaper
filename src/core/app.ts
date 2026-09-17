@@ -19,6 +19,7 @@ import type { LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
 import { appFetch, backendName, fs, joinPath, pdf, saveFile, secret } from "@/core/store/backend";
+import { reviewKey, reviewsDue, type ReviewItem } from "@/core/records";
 import { exportArchive, importArchive, type ImportReport } from "@/core/archive";
 export { PartialImportError, type ImportReport } from "@/core/archive";
 import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/settings";
@@ -572,6 +573,20 @@ async function recordUsage(settings: Settings, task: "summary" | "grade" | "reco
     output_tokens: res.outputTokens,
     est_cost_usd: estimateCostUsd(settings.llm.provider, res.model, res.inputTokens, res.outputTokens),
   });
+}
+
+// ---- 読み返し(仕様 9.1) ----
+
+/** 1 週間前・1 か月前に読んだもののうち、まだ読み返していないもの */
+export async function dueReviews(state: AppState): Promise<(ReviewItem & { after: number })[]> {
+  const all = reviewsDue(state.papers, state.memos, state.today, new Set());
+  const done = new Set<string>();
+  for (const r of all) if (await sql.getMeta(reviewKey(r.paper.id, r.after))) done.add(reviewKey(r.paper.id, r.after));
+  return all.filter((r) => !done.has(reviewKey(r.paper.id, r.after)));
+}
+
+export async function markReviewed(paperId: string, after: number, remembered: boolean): Promise<void> {
+  await sql.setMeta(reviewKey(paperId, after), remembered ? "remembered" : "forgot");
 }
 
 export const loadAiOutputs = sql.loadAiOutputs;

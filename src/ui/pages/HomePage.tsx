@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { currentStreak, today, todaysReads } from "@/core/app";
+import { currentStreak, dueReviews, markReviewed, today, todaysReads } from "@/core/app";
+import type { ReviewItem } from "@/core/records";
 import { queue } from "@/core/papers/queue";
 import { courseProgress } from "@/core/papers/course";
 import { heatmap } from "@/core/records";
@@ -12,6 +14,17 @@ export function HomePage({ state, go }: PageProps) {
   const paper = today(state);
   const reads = todaysReads(state);
   const q = queue(state.papers);
+  const [reviews, setReviews] = useState<(ReviewItem & { after: number })[]>([]);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    dueReviews(state).then(setReviews);
+  }, [state.memos, state.today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const finishReview = async (r: ReviewItem & { after: number }, remembered: boolean) => {
+    await markReviewed(r.paper.id, r.after, remembered);
+    setReviews((xs) => xs.filter((x) => x !== r));
+  };
   return (
     <>
       <h1>ホーム</h1>
@@ -42,6 +55,24 @@ export function HomePage({ state, go }: PageProps) {
           </div>
         </div>
       )}
+      {reviews.map((r) => (
+        <div className="card" key={`${r.paper.id}:${r.after}`}>
+          <div className="muted">{r.daysAgo} 日前に読みました。何の論文だったか、思い出せますか?</div>
+          <p className="title">{r.paper.title}</p>
+          {revealed.has(r.paper.id) ? (
+            <>
+              <blockquote className="evidence">{r.oneLiner || "(メモの 1 行目が空でした)"}<span className="muted"> — そのときのあなたのひとこと</span></blockquote>
+              <div className="row">
+                <button className="btn small" onClick={() => finishReview(r, true)}>覚えていた</button>
+                <button className="btn secondary small" onClick={() => finishReview(r, false)}>忘れていた</button>
+                <button className="btn secondary small" onClick={() => go({ name: "editor", paperId: r.paper.id })}>メモを開く</button>
+              </div>
+            </>
+          ) : (
+            <button className="btn secondary small" onClick={() => setRevealed(new Set(revealed).add(r.paper.id))}>頭の中で思い出してから、答えを見る</button>
+          )}
+        </div>
+      ))}
       {courseProgress(state.papers).map((c) => (
         <div className="card" key={c.id}>
           <div className="row" style={{ justifyContent: "space-between" }}>
