@@ -101,7 +101,7 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
         />
       </div>
       <div className="side">
-        {state.settings.pomodoro.enabled && <Pomodoro config={state.settings.pomodoro} />}
+        {state.settings.advanced && state.settings.pomodoro.enabled && <Pomodoro config={state.settings.pomodoro} />}
         <div className="card">
           <div className="muted">本文の文字数</div>
           <p className="title">{chars}{completion.next && ` / ${completion.next.required}`}</p>

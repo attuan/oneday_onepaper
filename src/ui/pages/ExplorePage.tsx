@@ -89,6 +89,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
         {mode === "course" && <p className="muted">全体像が分かるもの → 基礎 → 最近の研究 の順に並べて、キューに入れます。終わりが見えるので、何から読めばいいか分からないときはこちら。</p>}
         <div className="field"><label>興味のあるキーワード</label><input value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="例: retrieval augmented generation, evaluation" onKeyDown={(e) => e.key === "Enter" && keywords.trim() && sources.size > 0 && search()} /></div>
         <div className="field"><label>目的・補足(任意。LLM の順位付けに使う)</label><input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="例: 修論で RAG の評価手法を整理したい" /></div>
+        {state.settings.advanced && (
         <div className="field">
           <label>検索するソース(既定は設定画面で変えられる)</label>
           <div className="row">
@@ -97,6 +98,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
             ))}
           </div>
         </div>
+        )}
         <div className="row">
           <label><input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} /> LLM でクエリ生成と順位付けをする({state.settings.llm.provider} / {state.settings.llm.model})</label>
         </div>

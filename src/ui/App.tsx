@@ -31,13 +31,13 @@ export interface PageProps {
   go: (p: Page) => void;
 }
 
-const NAV: { page: Page; label: string }[] = [
+const NAV: { page: Page; label: string; advanced?: boolean }[] = [
   { page: { name: "home" }, label: "ホーム" },
   { page: { name: "today" }, label: "今日の論文" },
   { page: { name: "papers" }, label: "論文リスト" },
   { page: { name: "explore" }, label: "論文を探す" },
   { page: { name: "calendar" }, label: "カレンダー" },
-  { page: { name: "usage" }, label: "API 使用量" },
+  { page: { name: "usage" }, label: "API 使用量", advanced: true },
   { page: { name: "lessons" }, label: "講座" },
   { page: { name: "settings" }, label: "設定" },
 ];
@@ -104,7 +104,7 @@ export function App() {
     <div className="app">
       <nav className="nav">
         <div className="brand">One day,{" "}<br />One paper</div>
-        {NAV.map((n) => (
+        {NAV.filter((n) => !n.advanced || state.settings.advanced).map((n) => (
           <button key={n.page.name} className={page.name === n.page.name ? "active" : ""} onClick={() => setPage(n.page)}>
             {n.label}
           </button>

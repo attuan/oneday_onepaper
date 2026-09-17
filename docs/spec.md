@@ -213,6 +213,7 @@ CREATE TABLE llm_usage (
     "channels": ["os"],                   // "os" | "slack" | "line" の組み合わせ
     "line_to": ""                         // LINE の送信先ユーザー ID
   },
+  "advanced": false,                      // 詳しい機能を出す(9 章)
   "share": { "slack_on_complete": false, "display_name": "" },   // 10.1
   "pomodoro": { "enabled": true, "work_minutes": 25, "break_minutes": 5 }
 }
@@ -408,6 +409,10 @@ UI の細部は変える前提。ここでは画面の**存在と責務**だけ�
 | 講座 | 静的 Markdown |
 
 配色は青と白の 2 色を基本。
+
+**詳しい機能は既定で隠す**(`advanced`、既定 false。2026-09-18)。入ったばかりの人に選ぶものを増やさないため。隠すもの:
+BibTeX と CSV の取り込み、検索ソースの選択(論文を探す・設定)、API 使用量の画面、ポモドーロ、日付の切り替え時刻、猶予。
+設定画面の一番上の「詳しい設定と機能を出す」で戻せる。機能そのものは消していない。
 
 ## 10. 通知
 

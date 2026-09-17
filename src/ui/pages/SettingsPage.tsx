@@ -156,9 +156,10 @@ export function SettingsPage({ state, setState }: PageProps) {
   return (
     <>
       <h1>設定</h1>
+      <p><label><input type="checkbox" checked={s.advanced} onChange={(e) => setS({ ...s, advanced: e.target.checked })} /> 詳しい設定と機能を出す</label><span className="muted">(BibTeX・CSV、検索ソースの選択、API 使用量、ポモドーロ、日付の切り替え時刻、猶予)</span></p>
       <div className="card">
         <h2 style={{ marginTop: 0 }}>スケジュール</h2>
-        <div className="row">
+        <div className="row" hidden={!s.advanced}>
           <div className="field"><label>日付の切り替え時刻</label><input type="number" min={0} max={23} value={s.day_boundary_hour} onChange={(e) => setS({ ...s, day_boundary_hour: Number(e.target.value) })} /></div>
         </div>
         <div className="field">
@@ -191,7 +192,7 @@ export function SettingsPage({ state, setState }: PageProps) {
         <div className="field">
           <label><input type="checkbox" checked={s.forgive_single_miss} onChange={(e) => setS({ ...s, forgive_single_miss: e.target.checked })} /> 1 日だけの未読では連続記録を切らない(2 日続けて休むと切れる。休みの日は数えない)</label>
         </div>
-        <div className="row">
+        <div className="row" hidden={!s.advanced}>
           <div className="field">
             <label>猶予</label>
             <label><input type="checkbox" checked={s.grace.enabled} onChange={(e) => setS({ ...s, grace: { ...s.grace, enabled: e.target.checked } })} /> 猶予を有効にする(既定はなし)</label>
@@ -271,7 +272,7 @@ export function SettingsPage({ state, setState }: PageProps) {
         )}
       </div>
 
-      <div className="card">
+      <div className="card" hidden={!s.advanced}>
         <h2 style={{ marginTop: 0 }}>論文検索</h2>
         <div className="field">
           <label>既定で使うソース(検索画面でその都度変えられる)</label>
@@ -357,7 +358,7 @@ export function SettingsPage({ state, setState }: PageProps) {
         {shareMsg && <p className={shareMsg.startsWith("テスト投稿に失敗") ? "error" : "ok"}>{shareMsg}</p>}
       </div>
 
-      <div className="card">
+      <div className="card" hidden={!s.advanced}>
         <h2 style={{ marginTop: 0 }}>ポモドーロ</h2>
         <label><input type="checkbox" checked={s.pomodoro.enabled} onChange={(e) => setS({ ...s, pomodoro: { ...s.pomodoro, enabled: e.target.checked } })} /> メモを書く画面にタイマーを出す</label>
         <div className="row" style={{ marginTop: 8 }}>

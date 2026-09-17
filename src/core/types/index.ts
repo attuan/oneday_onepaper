@@ -142,6 +142,11 @@ export interface Settings {
     /** LINE の送信先(ユーザー ID)。トークンは secret に置く */
     line_to: string;
   };
+  /**
+   * 詳しい機能を出す。既定はオフで、BibTeX・CSV・検索ソースの選択・API 使用量・ポモドーロ・細かいスケジュール設定を隠す。
+   * 入ったばかりの人に、選ぶものを増やさないため
+   */
+  advanced: boolean;
   /** 読了を研究室などの Slack に投稿する(仕様 10.1)。Webhook URL は secret に置く */
   share: {
     slack_on_complete: boolean;
@@ -176,6 +181,7 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
     channels: ["os"],
     line_to: "",
   },
+  advanced: false,
   share: { slack_on_complete: false, display_name: "" },
   pomodoro: { enabled: true, work_minutes: 25, break_minutes: 5 },
 };

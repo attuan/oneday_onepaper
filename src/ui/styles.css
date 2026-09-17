@@ -44,6 +44,7 @@ h2 { font-size: 16px; margin: 24px 0 10px; color: var(--blue-dark); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .link { color: var(--blue); text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; }
 .error { color: var(--danger); font-size: 13px; }
+[hidden] { display: none !important; }
 .ok { color: var(--ok); }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .field label { font-size: 13px; color: var(--muted); }

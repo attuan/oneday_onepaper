@@ -111,11 +111,15 @@ export function PapersPage({ state, setState, go }: PageProps) {
         <h1>論文リスト</h1>
         <div className="row">
           <button className="btn secondary" onClick={() => go({ name: "explore" })}>論文を探す</button>
+          {state.settings.advanced && (
+            <>
           <label className="btn secondary">
             CSV を読み込む
             <input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && onCsv(e.target.files[0])} />
           </label>
           <button className="btn secondary" onClick={() => setShowBib((v) => !v)}>BibTeX</button>
+            </>
+          )}
           <button className="btn secondary" onClick={() => setShowDoi((v) => !v)}>DOI で追加</button>
           <button className="btn secondary" onClick={() => setShowArticle((v) => !v)}>記事を追加</button>
           <button className="btn" onClick={() => setShowAdd((v) => !v)}>手入力で追加</button>
@@ -170,7 +174,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
           }}
         />
       )}
-      <p className="muted">CSV の列: title(必須), authors(「;」区切り), year, venue, doi, url, pdf_url, abstract, reason, bibtex</p>
+      {state.settings.advanced && <p className="muted">CSV の列: title(必須), authors(「;」区切り), year, venue, doi, url, pdf_url, abstract, reason, bibtex</p>}
 
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>キュー({q.length})</h2>
