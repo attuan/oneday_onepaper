@@ -3,6 +3,7 @@ import type { PageProps } from "../App";
 import { downloadPdf, hasPdf, skipToday, today } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { levelThresholds } from "@/core/memo/completion";
+import { STAGE_LABELS } from "@/core/papers/course";
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { pdfPath } from "@/core/app";
@@ -52,6 +53,7 @@ export function TodayPage({ state, setState, go }: PageProps) {
     <>
       <h1>今日の論文</h1>
       <div className="card hero">
+        {paper.course && <span className="badge">{paper.course.title} {paper.course.step} 本目・{STAGE_LABELS[paper.course.stage]}</span>}
         <p className="title">{paper.title}</p>
         <PaperMeta paper={paper} />
         <PaperLinks paper={paper} />

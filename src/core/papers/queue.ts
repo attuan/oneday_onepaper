@@ -83,5 +83,6 @@ export function newPaper(input: Partial<Paper> & { title: string }, papers: Pape
     skip_count: 0,
     bibtex: input.bibtex ?? null,
     fulltext_tokens: null,
+    course: input.course ?? null,
   };
 }

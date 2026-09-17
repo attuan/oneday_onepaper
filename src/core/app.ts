@@ -1,6 +1,6 @@
 // アプリの操作をまとめる層。UI はここだけを呼ぶ
 
-import type { DayLog, GradeOutput, Memo, NotifyChannel, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
+import type { CourseStage, DayLog, GradeOutput, Memo, NotifyChannel, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
 import { logicalDate } from "@/core/schedule/logicalDay";
 import { judgeMissingDays } from "@/core/schedule/judge";
 import { markRead, newPaper, queue, removePaper, reorderQueue, skipPaper, todaysPaper } from "@/core/papers/queue";
@@ -216,7 +216,12 @@ export interface SearchResult {
 /** 候補の上限。rank のプロンプトに全部入れるので増やしすぎない */
 const MAX_CANDIDATES = 40;
 
-export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[]): Promise<SearchResult> {
+/** 「論文を探す」の順位付けの基準 */
+export const RANK_CRITERION = "目的への関連度と、基礎から応用への読む順";
+/** コースを組むときの基準(仕様 8.1) */
+export const COURSE_CRITERION = "この分野に入ったばかりの人の入門コースとして読む順。まず全体像が分かるサーベイ・解説、次に基礎となる古典、最後に最近の代表的な研究";
+
+export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[], criterion = RANK_CRITERION): Promise<SearchResult> {
   const warnings: string[] = [];
   const sources = (sourceIds?.length ? sourceIds : state.settings.search.sources.length ? state.settings.search.sources : DEFAULT_SOURCES).map(sourceInfo);
   const needJa = sources.some((s) => s.lang === "ja");
@@ -268,7 +273,7 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
   let ranked: RankItem[] | null = null;
   if (llm) {
     try {
-      const r = await runRank(llm, cands, purpose || keywords, "目的への関連度と、基礎から応用への読む順", state.settings.language);
+      const r = await runRank(llm, cands, purpose || keywords, criterion, state.settings.language);
       await recordUsage(state.settings, "rank", r.res);
       ranked = r.output;
     } catch (e) {
@@ -292,6 +297,13 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
     candidates = [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: "", rank: i + 1 }));
   }
   return { ...base, candidates, usedLlm: !!ranked, warnings };
+}
+
+/** 選んだ候補を、この順のコースとしてキューの末尾に入れる(仕様 8.1) */
+export async function createCourse(state: AppState, title: string, picks: (Candidate & { reason?: string; stage: CourseStage })[]): Promise<{ state: AppState; added: number; errors: string[] }> {
+  const id = `course:${Date.now().toString(36)}`;
+  const inputs = picks.map(({ stage, ...c }, i) => ({ ...c, source: "llm" as const, reason: c.reason || null, course: { id, title: title.trim() || "コース", step: i + 1, stage } }));
+  return addMany(state, inputs);
 }
 
 /** キューを LLM に並べ替えさせる(Q8) */

@@ -1,6 +1,7 @@
 import type { PageProps } from "../App";
 import { currentStreak, today, todaysReads } from "@/core/app";
 import { queue } from "@/core/papers/queue";
+import { courseProgress } from "@/core/papers/course";
 import { PaperMeta } from "../components/PaperCard";
 
 export function HomePage({ state, go }: PageProps) {
@@ -36,6 +37,16 @@ export function HomePage({ state, go }: PageProps) {
           </div>
         </div>
       )}
+      {courseProgress(state.papers).map((c) => (
+        <div className="card" key={c.id}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <strong>{c.title}</strong>
+            <span className="muted">{c.read} / {c.total} 本{c.read === c.total && "・修了"}</span>
+          </div>
+          <div className="progress"><div style={{ width: `${(c.read / c.total) * 100}%` }} /></div>
+          {c.next && <div className="muted">次: {c.next.title}</div>}
+        </div>
+      ))}
       <div className="row">
         <div className="card" style={{ flex: 1 }}><div className="muted">キュー</div><p className="title">{q.length} 本</p></div>
         <div className="card" style={{ flex: 1 }}><div className="muted">読了</div><p className="title">{state.papers.filter((p) => p.status === "read").length} 本</p></div>

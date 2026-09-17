@@ -102,7 +102,8 @@ Markdown と JSON は人が読める。SQLite は集計と検索のためのイ�
       "read_at": null,
       "skip_count": 0,
       "bibtex": null,                       // v1 で埋める
-      "fulltext_tokens": null               // 全文抽出済みなら概算トークン数
+      "fulltext_tokens": null,              // 全文抽出済みなら概算トークン数
+      "course": null                        // { id, title, step, stage: 'survey'|'classic'|'recent' }。8.1
     }
   ]
 }
@@ -360,6 +361,19 @@ interface LlmProvider {
 - OA の PDF リンクは各ソースから取る(OpenAlex `best_oa_location.pdf_url` / `open_access.oa_url`、Semantic Scholar `openAccessPdf`、Crossref `link` の PDF、arXiv、J-STAGE)。取れないものは `pdf_url = null`。
 - 学術 API の応答は `state.sqlite` に 7 日キャッシュ。
 
+### 8.1 コース(2026-09-18、design-questions 8 章)
+
+対象の人は分野の地図を持っていないので、キーワード検索の結果を並べられても選べない。無限のキューではなく、
+終わりの見える「このテーマの入門 N 本(5 / 10 / 15)」を順番つきで渡す。「論文を探す」の既定はこちら。
+
+- 順番は 全体像(サーベイ・解説)→ 基礎(古典)→ 最近の研究。
+- LLM が使えるときは、この基準で `rank` させた上位 N 本をその順で使う。
+- LLM が無くても組める: 題名(survey / review / 解説 など)で全体像、年(直近 2 年)で最近、ほかを基礎に分け、
+  全体像 2 本まで・残りの半分を基礎(古い順)・あとを最近、足りない枠は順位の高い残りで埋める(`papers/course.ts`)。
+- コースは別ファイルにせず、論文の `course` 列だけで表す。進捗(読了数 / 本数、次の 1 本)はそこから数える。ホームに進捗バーを出す。
+- コースの論文はキューの末尾にこの順で入る。並べ替えやスキップは普通の論文と同じ。
+- API キーが無いときは「LLM でクエリ生成と順位付け」を既定でオフにする(毎回の失敗表示を避ける)。
+
 ## 9. 画面
 
 UI の細部は変える前提。ここでは画面の**存在と責務**だけ決める。
@@ -432,6 +446,7 @@ MVP は「作る順番」。UI は各段階で対話しながら変える。
 16. 読了の段階(6 章)
 17. 読了を Slack に共有(10.1)
 18. LLM の道を広げる: OpenAI 互換プロバイダ(7.1)、Apple Intelligence(ショートカット経由)と貼り付け(7.4)
+19. 差分フィードバック、要約の根拠(7.2)、コース(8.1)
 
 ## 12. 仮置き・要確認
 

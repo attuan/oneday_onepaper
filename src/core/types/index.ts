@@ -3,6 +3,17 @@
 export type PaperStatus = "unread" | "read" | "skipped" | "removed";
 export type PaperSource = "llm" | "manual" | "import";
 
+/** コースの中での役割(仕様 8.1)。全体像 → 基礎 → 最近 の順に読む */
+export type CourseStage = "survey" | "classic" | "recent";
+
+export interface PaperCourse {
+  id: string;
+  title: string;
+  /** コースの中での順番(1 始まり) */
+  step: number;
+  stage: CourseStage;
+}
+
 export interface Paper {
   id: string;
   title: string;
@@ -22,6 +33,8 @@ export interface Paper {
   skip_count: number;
   bibtex: string | null;
   fulltext_tokens: number | null;
+  /** 入っているコース。コースを入れる前の papers.json には列が無い */
+  course?: PaperCourse | null;
 }
 
 export interface PapersFile {
