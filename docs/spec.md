@@ -295,7 +295,7 @@ interface LlmProvider {
 | `recommend` | キーワード、件数 | 検索クエリの配列(学術 API に投げる用) | ユーザーが「論文を探す」を実行 |
 | `rank` | 候補論文の書誌 + アブスト(最大 30 件)、キーワード、並べ替え基準 | `[{ id, rank, reason }]` | recommend の後、または LLM 並べ替え |
 | `summary` | タイトル + アブスト、または全文 | `{ problem, method, results, limitations }` | 読了後、ユーザーが実行 |
-| `grade` | メモ本文 + summary と同じ入力 | `{ items: [{ name, score(1-5), comment }], total, overall_comment }` | summary と同時 |
+| `grade` | メモ本文 + summary と同じ入力 | `{ items: [{ name, score(1-5), comment }], total, overall_comment, good_points, missing_points, misreadings, next_step }` | summary と同時 |
 
 採点項目(固定 4 つ):
 1. 問題設定を把握しているか
@@ -303,7 +303,12 @@ interface LlmProvider {
 3. 結果を正しく捉えているか
 4. 自分の視点(疑問・応用)があるか
 
-`grade` は「メモに書いてあること」を評価する。「論文にあってメモにないこと」の指摘は全文入力のときだけ追加で行う。
+`grade` は「メモに書いてあること」を評価する。メモが短いこと自体は責めない(Lv1 の日があるため)。
+
+画面では点数より**差分フィードバック**を先に見せる(2026-09-18)。点数は折りたたみの中。習慣が弱い人には、20 点満点の点より次の一歩のほうが効くため。
+- `good_points`: メモがよく捉えている点 / `missing_points`: 渡した論文情報にあってメモにない点 /
+  `misreadings`: メモが論文と食い違っているかもしれない点 / `next_step`: 次の一歩(1 文)。各 3 つまで。
+- 入れる前の採点にはこれらが無いので、無ければ出さない。
 
 ### 7.3 全文を使う流れ(コスト提示)
 

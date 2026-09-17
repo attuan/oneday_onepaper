@@ -5,7 +5,7 @@
 
 import type { GradeOutput, SummaryOutput } from "@/core/types";
 import { LlmError, parseJsonLoose } from "./provider";
-import { GRADE_ITEMS, normalizeGrade, paperHeader, type PaperContext } from "./tasks";
+import { FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, normalizeGrade, paperHeader, type PaperContext } from "./tasks";
 
 /** 戻り先の URL に付けるパラメータ。値は論文 ID */
 export const RETURN_PARAM = "ai_return";
@@ -14,11 +14,10 @@ export const RETURN_PARAM = "ai_return";
 export function buildHandoffPrompt(ctx: PaperContext, memoBody: string, language: string): string {
   const lang = language === "en" ? "English" : "日本語";
   const kind = ctx.inputKind === "abstract" ? "アブストラクト" : ctx.inputKind === "fulltext" ? "本文" : "ユーザー提供テキスト";
-  const missing = ctx.inputKind === "abstract" ? "missing_points は空の配列にする。" : "missing_points には、本文にあってメモに書かれていない重要な点を最大 3 つ。";
   return [
     "論文の情報と、それを読んだ人のメモを渡します。次の 2 つをしてください。",
     "1. summary: 論文を事実に基づいて要約する。各項目 2〜4 文。情報が足りない項目は推測せず「不明」と書く。",
-    "2. grade: メモを指導教員として採点する。対象はメモに書かれていることだけ。各項目 1〜5 点。comment は次に何を書けばよくなるかを具体的に。",
+    `2. grade: ${GRADE_RULES}`,
     `出力は${lang}で、下の形の JSON だけを返してください。前置き・説明・コードフェンスは不要です。`,
     "",
     paperHeader(ctx.paper),
@@ -33,12 +32,13 @@ export function buildHandoffPrompt(ctx: PaperContext, memoBody: string, language
     JSON.stringify(
       {
         summary: { problem: "何を解いた / 論じた問題か", method: "手法の要点", results: "結果・主張", limitations: "限界・注意点" },
-        grade: { items: GRADE_ITEMS.map((name) => ({ name, score: 3, comment: "…" })), overall_comment: "2〜3 文", missing_points: [] },
+        grade: { items: GRADE_ITEMS.map((name) => ({ name, score: 3, comment: "…" })), overall_comment: "2〜3 文", good_points: [], missing_points: [], misreadings: [], next_step: "1 文" },
       },
       null,
       1,
     ),
-    `grade.items はこの 4 項目を、この順・この name で。${missing}`,
+    "grade.items はこの 4 項目を、この順・この name で。grade の残りは次のとおり:",
+    FEEDBACK_RULES,
   ].join("\n");
 }
 
@@ -67,7 +67,10 @@ export function parseHandoffResult(text: string): HandoffResult {
       items: g.items.map((it, i) => ({ name: str(it?.name) === "不明" ? (GRADE_ITEMS[i] ?? "") : str(it?.name), score: Number(it?.score), comment: typeof it?.comment === "string" ? it.comment : "" })),
       total: 0,
       overall_comment: typeof g.overall_comment === "string" ? g.overall_comment : "",
-      missing_points: Array.isArray(g.missing_points) ? g.missing_points.map(String) : [],
+      missing_points: g.missing_points,
+      good_points: g.good_points,
+      misreadings: g.misreadings,
+      next_step: g.next_step,
     });
   }
   return { summary, grade };

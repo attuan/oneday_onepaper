@@ -179,5 +179,13 @@ export interface GradeOutput {
   items: GradeItem[];
   total: number;
   overall_comment: string;
-  missing_points?: string[]; // 全文入力のときだけ
+  /** 渡した論文情報にあってメモにない点 */
+  missing_points?: string[];
+  // 差分フィードバック(仕様 7.2)。点数より先に見せる。入れる前の採点には無い
+  /** メモのうち、よく捉えている点 */
+  good_points?: string[];
+  /** メモが論文と食い違っているかもしれない点 */
+  misreadings?: string[];
+  /** 次に読む・書くときの一歩(1 文) */
+  next_step?: string;
 }

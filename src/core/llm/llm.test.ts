@@ -43,7 +43,8 @@ describe("runGrade", () => {
             ],
             total: 99,
             overall_comment: "ok",
-            missing_points: [],
+            missing_points: ["a", "b", "c", "d"],
+            misreadings: "not an array",
           }),
           inputTokens: 10,
           outputTokens: 5,
@@ -57,5 +58,10 @@ describe("runGrade", () => {
     const paper = newPaper({ title: "t" }, [], "now");
     const r = await runGrade(fake, { paper, text: "abs", inputKind: "abstract" }, "memo", "ja");
     expect(r.output.total).toBe(5 + 3 + 5 + 1);
+    // 差分フィードバックは 3 つまで。欠けた項目や形の違うものは空にする
+    expect(r.output.missing_points).toEqual(["a", "b", "c"]);
+    expect(r.output.misreadings).toEqual([]);
+    expect(r.output.good_points).toEqual([]);
+    expect(r.output.next_step).toBe("");
   });
 });

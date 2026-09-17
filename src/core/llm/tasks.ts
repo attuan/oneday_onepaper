@@ -64,20 +64,31 @@ const GRADE_SCHEMA = {
     total: { type: "integer" },
     overall_comment: { type: "string" },
     missing_points: { type: "array", items: { type: "string" } },
+    good_points: { type: "array", items: { type: "string" } },
+    misreadings: { type: "array", items: { type: "string" } },
+    next_step: { type: "string" },
   },
-  required: ["items", "total", "overall_comment", "missing_points"],
+  required: ["items", "total", "overall_comment", "missing_points", "good_points", "misreadings", "next_step"],
   additionalProperties: false,
 };
 
+/** 採点の姿勢。API を通さない道(handoff.ts)でも同じ文面を使う */
+export const GRADE_RULES =
+  "あなたは論文読解メモを見る指導教員です。見る対象は「メモに書かれていること」だけです。メモに書かれていない知識で減点したり、書かれていないことを書かれているとみなしたりしないでください。メモが短いのは時間がない日だからで、短さ自体は責めないでください。各項目 1〜5 点。コメントは具体的に、次に何を書けばよくなるかを示してください。";
+
+/** 差分フィードバック。点数より、読み手の次の一歩になるものを返させる */
+export const FEEDBACK_RULES = [
+  "good_points: メモのうち、論文をよく捉えている点を最大 3 つ。無ければ空配列。",
+  "missing_points: 渡した論文情報にあってメモに書かれていない重要な点を最大 3 つ。",
+  "misreadings: メモが論文情報と食い違っているかもしれない点を最大 3 つ。「メモでは〜とあるが、論文では〜」の形で。確信が無ければ挙げない。無ければ空配列。",
+  "next_step: 次に読む・書くときの一歩を 1 文で。",
+].join("\n");
+
 export function buildGradeRequest(ctx: PaperContext, memoBody: string, language: string) {
   const lang = language === "en" ? "English" : "日本語";
-  const missing =
-    ctx.inputKind === "fulltext"
-      ? "missing_points には、本文にあってメモに書かれていない重要な点を最大 3 つ挙げてください。"
-      : "missing_points は空配列にしてください(本文がないため判断しない)。";
   return {
-    system: `あなたは論文読解メモを採点する指導教員です。採点対象は「メモに書かれていること」だけです。メモに書かれていない知識で減点したり、書かれていないことを書かれているとみなしたりしないでください。各項目 1〜5 点。コメントは具体的に、次に何を書けばよくなるかを示してください。出力は${lang}で。`,
-    user: `${paperHeader(ctx.paper)}\n\n[論文情報 (${ctx.inputKind})]\n${ctx.text}\n\n[ユーザーのメモ]\n${memoBody}\n\n採点項目(この順・この名前で items に入れる):\n${GRADE_ITEMS.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\ntotal は 4 項目の合計。overall_comment は 2〜3 文。${missing}`,
+    system: `${GRADE_RULES}出力は${lang}で。`,
+    user: `${paperHeader(ctx.paper)}\n\n[論文情報 (${ctx.inputKind})]\n${ctx.text}\n\n[ユーザーのメモ]\n${memoBody}\n\n採点項目(この順・この名前で items に入れる):\n${GRADE_ITEMS.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\ntotal は 4 項目の合計。overall_comment は 2〜3 文。\n${FEEDBACK_RULES}`,
     schema: GRADE_SCHEMA,
     maxTokens: 2048,
     effort: "medium" as const,
@@ -97,7 +108,16 @@ export async function runGrade(llm: LlmProvider, ctx: PaperContext, memoBody: st
 /** 範囲はスキーマで縛れないのでここで丸め、total もモデルの申告を信じず再計算 */
 export function normalizeGrade(output: GradeOutput): GradeOutput {
   const items = output.items.map((it) => ({ ...it, score: Math.max(1, Math.min(5, Math.round(Number(it.score) || 1))) }));
-  return { ...output, items, total: items.reduce((a, b) => a + b.score, 0) };
+  const list = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => String(x).trim()).filter(Boolean).slice(0, 3) : []);
+  return {
+    ...output,
+    items,
+    total: items.reduce((a, b) => a + b.score, 0),
+    missing_points: list(output.missing_points),
+    good_points: list(output.good_points),
+    misreadings: list(output.misreadings),
+    next_step: typeof output.next_step === "string" ? output.next_step.trim() : "",
+  };
 }
 
 export type TaskResult<T> = { output: T; res: LlmResponse };

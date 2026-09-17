@@ -11,7 +11,7 @@ describe("buildHandoffPrompt", () => {
     expect(p).toContain("We propose the Transformer.");
     expect(p).toContain("注意機構だけで翻訳");
     expect(p).toContain('"limitations"');
-    expect(p).toContain("missing_points は空の配列");
+    expect(p).toContain("misreadings");
   });
 });
 

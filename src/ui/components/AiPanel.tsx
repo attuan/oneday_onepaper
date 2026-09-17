@@ -138,8 +138,8 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
 
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>AI 要約と採点</h2>
-      {!summary && memo.frontmatter.level < 3 && <p className="muted">採点はメモ全体が対象です。Lv3 まで書いてから実行すると、点もコメントも役に立ちます。</p>}
+      <h2 style={{ marginTop: 0 }}>AI 要約とフィードバック</h2>
+      {!summary && memo.frontmatter.level < 3 && <p className="muted">フィードバックはメモ全体が対象です。書き足してから実行すると、返ってくるものも具体的になります。</p>}
       {!summary && via && (
         <>
           <div className="field">
@@ -170,7 +170,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
                 推定: 入力 約 {est.inputTokens.toLocaleString()} トークン + 出力 約 {est.outputTokensGuess.toLocaleString()} トークン ≈ <strong>{formatUsd(est.costUsd)}</strong>
                 {inputKind !== "abstract" && <><br />アブストのみなら約 {formatUsd(absEst.costUsd)}</>}
               </p>
-              <button className="btn" disabled={running || extracting} onClick={run}>{running ? "実行中…" : "要約と採点を実行"}</button>
+              <button className="btn" disabled={running || extracting} onClick={run}>{running ? "実行中…" : "要約とフィードバックを実行"}</button>
             </>
           ) : (
             <>
@@ -211,23 +211,34 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
       )}
       {summary && grade && (
         <>
-          <h2>採点 {grade.total} / 20</h2>
-          {grade.items.map((it) => (
-            <div className="grade-item" key={it.name}>
-              <span className="score">{it.score}/5</span>
-              <span><strong>{it.name}</strong><br /><span className="muted">{it.comment}</span></span>
-            </div>
-          ))}
+          <h2>メモへのフィードバック</h2>
+          <FeedbackList title="よく捉えている点" items={grade.good_points} />
+          <FeedbackList title="論文にあってメモにない点" items={grade.missing_points} />
+          <FeedbackList title="読み違えているかもしれない点" items={grade.misreadings} />
+          {grade.next_step && <p><strong>次の一歩</strong> {grade.next_step}</p>}
           <p>{grade.overall_comment}</p>
-          {grade.missing_points && grade.missing_points.length > 0 && (
-            <>
-              <div className="muted">本文にあってメモにない点</div>
-              <ul>{grade.missing_points.map((m, i) => <li key={i}>{m}</li>)}</ul>
-            </>
-          )}
+          <details>
+            <summary className="muted">点数を見る({grade.total} / 20)</summary>
+            {grade.items.map((it) => (
+              <div className="grade-item" key={it.name}>
+                <span className="score">{it.score}/5</span>
+                <span><strong>{it.name}</strong><br /><span className="muted">{it.comment}</span></span>
+              </div>
+            ))}
+          </details>
         </>
       )}
       {summary && <button className="btn secondary small" onClick={() => { setSummary(null); setGrade(null); }}>やり直す</button>}
     </div>
+  );
+}
+
+function FeedbackList({ title, items }: { title: string; items?: string[] }) {
+  if (!items?.length) return null;
+  return (
+    <>
+      <div className="muted">{title}</div>
+      <ul>{items.map((m, i) => <li key={i}>{m}</li>)}</ul>
+    </>
   );
 }
