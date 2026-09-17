@@ -59,6 +59,13 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .editor .side { overflow: auto; }
 .progress { height: 6px; background: var(--blue-light); border-radius: 3px; overflow: hidden; margin: 8px 0; }
 .progress div { height: 100%; background: var(--blue); }
+.heatmap { display: flex; gap: 3px; margin-top: 8px; overflow-x: auto; }
+.heatmap > div { display: flex; flex-direction: column; gap: 3px; }
+.heat { width: 12px; height: 12px; border-radius: 2px; background: var(--blue-light); }
+.heat.future { background: transparent; }
+.heat.lv1 { background: var(--blue-mid); }
+.heat.lv2 { background: var(--blue); }
+.heat.lv3 { background: var(--blue-dark); }
 .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; }
 .level { font-size: 11px; line-height: 1.4; text-align: center; padding: 4px 2px; border-radius: 4px; background: var(--blue-light); color: var(--muted); }
 .level.reached { background: var(--blue); color: #fff; }

@@ -2,6 +2,10 @@ import type { PageProps } from "../App";
 import { currentStreak, today, todaysReads } from "@/core/app";
 import { queue } from "@/core/papers/queue";
 import { courseProgress } from "@/core/papers/course";
+import { heatmap } from "@/core/records";
+import { LEVEL_LABELS } from "@/core/memo/completion";
+
+const HEAT_WEEKS = 18;
 import { PaperMeta } from "../components/PaperCard";
 
 export function HomePage({ state, go }: PageProps) {
@@ -48,6 +52,16 @@ export function HomePage({ state, go }: PageProps) {
           {c.next && <div className="muted">次: {c.next.title}</div>}
         </div>
       ))}
+      <div className="card">
+        <div className="muted">読んだ日(濃いほどしっかり書いた日)</div>
+        <div className="heatmap">
+          {heatmap(state.memos, state.today, HEAT_WEEKS).map((week) => (
+            <div key={week[0].date}>
+              {week.map((c) => <span key={c.date} className={c.future ? "heat future" : `heat lv${c.level}`} title={`${c.date}${c.level ? ` Lv${c.level} ${LEVEL_LABELS[c.level]}` : ""}`} />)}
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="row">
         <div className="card" style={{ flex: 1 }}><div className="muted">キュー</div><p className="title">{q.length} 本</p></div>
         <div className="card" style={{ flex: 1 }}><div className="muted">読了</div><p className="title">{state.papers.filter((p) => p.status === "read").length} 本</p></div>
