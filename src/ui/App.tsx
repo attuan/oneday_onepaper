@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { handoffReturnPaperId } from "@/core/llm/handoff";
+import { sharedArticle } from "@/core/papers/article";
 import type { AppState } from "@/core/app";
 import { bootstrap, currentStreak, rollover, today, todaysReads } from "@/core/app";
 import { runNotifications } from "@/core/notify";
@@ -19,7 +20,7 @@ export type Page =
   | { name: "today" }
   | { name: "editor"; paperId: string }
   | { name: "calendar" }
-  | { name: "papers" }
+  | { name: "papers"; article?: { url: string; title: string } }
   | { name: "explore" }
   | { name: "usage" }
   | { name: "lessons" }
@@ -48,12 +49,15 @@ export function App() {
   // ショートカットから戻ってきたときは、頼んだ論文のメモを開く(仕様 7.4)
   const [page, setPage] = useState<Page>(() => {
     const paperId = handoffReturnPaperId(location.href);
-    return paperId ? { name: "editor", paperId } : { name: "home" };
+    if (paperId) return { name: "editor", paperId };
+    // 共有シートから開かれたときは、記事の追加欄を埋めて出す(仕様 8.0)
+    const article = sharedArticle(location.href);
+    return article ? { name: "papers", article } : { name: "home" };
   });
 
   useEffect(() => {
     bootstrap().then(setState, (e) => setError(String(e)));
-    if (handoffReturnPaperId(location.href)) history.replaceState(null, "", location.pathname);
+    if (location.search) history.replaceState(null, "", location.pathname);
   }, []);
 
   // 1 分ごと: 日付境界を跨いだら判定(仕様 5.1)、通知の時刻なら送る(仕様 10.4)
@@ -93,7 +97,7 @@ export function App() {
     case "today": body = <TodayPage {...props} />; break;
     case "editor": body = <EditorPage {...props} paperId={page.paperId} />; break;
     case "calendar": body = <CalendarPage {...props} />; break;
-    case "papers": body = <PapersPage {...props} />; break;
+    case "papers": body = <PapersPage {...props} article={page.article} />; break;
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;
     case "lessons": body = <LessonsPage />; break;

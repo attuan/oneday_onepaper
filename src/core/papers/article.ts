@@ -29,3 +29,22 @@ export function articleInput(rawUrl: string, title: string): (Partial<Paper> & {
   if (!url || !title.trim()) return null;
   return { id: `url:${url}`, kind: "article", title: title.trim(), url, venue: new URL(url).hostname.replace(/^www\./, ""), source: "manual" };
 }
+
+/**
+ * 共有から開かれたときの URL(?url=&title=&text=)から、記事の URL とタイトルを取り出す(仕様 8.0)。
+ * Android は PWA の共有先として、iOS / iPadOS は共有シートのショートカットから、同じ形の URL でこのページを開く。
+ * 共有元によって URL が text や title に入ってくることがあるので、全部から探す
+ */
+export function sharedArticle(pageUrl: string): { url: string; title: string } | null {
+  let q: URLSearchParams;
+  try {
+    q = new URL(pageUrl).searchParams;
+  } catch {
+    return null;
+  }
+  const [url, title, text] = ["url", "title", "text"].map((k) => q.get(k)?.trim() ?? "");
+  const found = normalizeArticleUrl(url) ?? normalizeArticleUrl(findUrl(text) ?? "") ?? normalizeArticleUrl(findUrl(title) ?? "");
+  if (!found) return null;
+  const strip = (s: string) => s.replace(/https?:\/\/\S+/g, "").trim();
+  return { url: found, title: strip(title) || strip(text) || new URL(found).hostname };
+}

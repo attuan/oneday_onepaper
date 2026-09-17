@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { currentStreak, dueReviews, markReviewed, today, todaysReads } from "@/core/app";
+import { currentStreak, dueReviews, markReviewed, reorder, today, todaysReads } from "@/core/app";
 import type { ReviewItem } from "@/core/records";
 import { queue } from "@/core/papers/queue";
 import { courseProgress } from "@/core/papers/course";
@@ -10,7 +10,7 @@ import { LEVEL_LABELS } from "@/core/memo/completion";
 const HEAT_WEEKS = 18;
 import { PaperMeta } from "../components/PaperCard";
 
-export function HomePage({ state, go }: PageProps) {
+export function HomePage({ state, setState, go }: PageProps) {
   const paper = today(state);
   const reads = todaysReads(state);
   const q = queue(state.papers);
@@ -54,6 +54,19 @@ export function HomePage({ state, go }: PageProps) {
             <button className="btn secondary" onClick={() => go({ name: "papers" })}>手入力・CSV・DOI で追加</button>
           </div>
         </div>
+      )}
+      {reads.length === 0 && q.length > 1 && (
+        <>
+          <div className="muted">気分が乗らなければ、こっちでも(選ぶと今日の 1 本になります)</div>
+          <div className="row pick">
+            {q.slice(1, 3).map((p) => (
+              <button key={p.id} type="button" className="card pick-card" onClick={async () => setState(await reorder(state, [p.id, ...q.filter((x) => x.id !== p.id).map((x) => x.id)]))}>
+                <strong>{p.title}</strong>
+                <PaperMeta paper={p} />
+              </button>
+            ))}
+          </div>
+        </>
       )}
       {reviews.map((r) => (
         <div className="card" key={`${r.paper.id}:${r.after}`}>

@@ -59,6 +59,9 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .editor .side { overflow: auto; }
 .progress { height: 6px; background: var(--blue-light); border-radius: 3px; overflow: hidden; margin: 8px 0; }
 .progress div { height: 100%; background: var(--blue); }
+.pick { align-items: stretch; margin: 6px 0 16px; }
+.pick-card { flex: 1 1 220px; text-align: left; font: inherit; color: inherit; cursor: pointer; margin: 0; }
+.pick-card:hover { border-color: var(--blue); }
 .heatmap { display: flex; gap: 3px; margin-top: 8px; overflow-x: auto; }
 .heatmap > div { display: flex; flex-direction: column; gap: 3px; }
 .heat { width: 12px; height: 12px; border-radius: 2px; background: var(--blue-light); }

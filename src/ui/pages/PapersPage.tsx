@@ -8,14 +8,14 @@ import { ConfirmButton } from "../components/ConfirmButton";
 
 const CRITERIA = ["基礎から応用へ(読む順として自然な順)", "難易度が低い順", "新しい順", "被引用・影響力が大きい順"];
 
-export function PapersPage({ state, setState, go }: PageProps) {
+export function PapersPage({ state, setState, go, article: shared }: PageProps & { article?: { url: string; title: string } }) {
   const q = queue(state.papers);
   const read = state.papers.filter((p) => p.status === "read").sort((a, b) => (a.read_at! < b.read_at! ? 1 : -1));
   const [msg, setMsg] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showDoi, setShowDoi] = useState(false);
-  const [showArticle, setShowArticle] = useState(false);
-  const [article, setArticle] = useState({ url: "", title: "" });
+  const [showArticle, setShowArticle] = useState(!!shared);
+  const [article, setArticle] = useState(shared ?? { url: "", title: "" });
   const [doiText, setDoiText] = useState("");
   const [showBib, setShowBib] = useState(false);
   const [bibText, setBibText] = useState("");
