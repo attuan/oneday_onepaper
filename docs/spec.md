@@ -288,6 +288,7 @@ interface LlmProvider {
 違いは `llm.base_url`・キー(secret の `openai_compat_api_key`。ローカルなら空)・モデル名だけ。スキーマ指定は行き先で通り方が違うので、
 スキーマは文面で伝えて JSON モード(`response_format: json_object`)だけ頼み、400 が返ったら JSON モードも外してもう一度送る。
 単価表に無いモデルは $0 と出る。ブラウザ版では行き先が CORS を許可していないと届かない。
+デスクトップ版は HTTP の許可リスト(`src-tauri/capabilities/default.json`)にある行き先だけ届く(プリセットの 4 つと localhost)。
 
 ### 7.2 タスク
 

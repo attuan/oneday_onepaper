@@ -47,6 +47,18 @@
         },
         {
           "url": "https://api.line.me/*"
+        },
+        {
+          "url": "https://api.openai.com/*"
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/*"
+        },
+        {
+          "url": "https://openrouter.ai/*"
+        },
+        {
+          "url": "https://api.groq.com/*"
         }
       ]
     }

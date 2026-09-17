@@ -245,7 +245,7 @@ export function SettingsPage({ state, setState }: PageProps) {
               <label>API キー({keyStore}。{hasOaKey ? "設定済み" : "未設定"}。ローカルのサーバーなら空でよい)</label>
               <input type="password" value={oaKey} onChange={(e) => setOaKey(e.target.value)} placeholder={hasOaKey ? "変更する場合のみ入力" : ""} />
             </div>
-            <p className="muted">モデル名は接続先のものを上の欄に入れてください。単価表に無いモデルは使用量の金額が $0 と出ます。{web && " ブラウザ版では、接続先が CORS を許可していないと届きません。"}</p>
+            <p className="muted">モデル名は接続先のものを上の欄に入れてください。単価表に無いモデルは使用量の金額が $0 と出ます。{web ? " ブラウザ版では、接続先が CORS を許可していないと届きません。" : " デスクトップ版で届くのは、上の一覧にある接続先とローカル(localhost)だけです。"}</p>
           </>
         )}
         {s.llm.provider === "ollama" && (
