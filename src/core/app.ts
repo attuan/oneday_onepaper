@@ -1,6 +1,6 @@
 // アプリの操作をまとめる層。UI はここだけを呼ぶ
 
-import type { CourseStage, DayLog, GradeOutput, Memo, NotifyChannel, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
+import type { CourseStage, DayLog, GradeOutput, LlmTask, Memo, NotifyChannel, Paper, Settings, SourceId, SummaryOutput } from "@/core/types";
 import { logicalDate } from "@/core/schedule/logicalDay";
 import { judgeMissingDays } from "@/core/schedule/judge";
 import { markRead, newPaper, queue, removePaper, reorderQueue, skipPaper, todaysPaper } from "@/core/papers/queue";
@@ -19,7 +19,7 @@ import type { LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
 import { appFetch, backendName, fs, joinPath, pdf, saveFile, secret } from "@/core/store/backend";
-import { reviewKey, reviewsDue, type ReviewItem } from "@/core/records";
+import { buildRelatedWorkRequest, monthDigest, monthReads, reviewKey, reviewsDue, type ReviewItem } from "@/core/records";
 import { exportArchive, importArchive, type ImportReport } from "@/core/archive";
 export { PartialImportError, type ImportReport } from "@/core/archive";
 import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/settings";
@@ -563,7 +563,7 @@ export async function saveHandoffResult(state: AppState, memo: Memo, ctx: PaperC
   return { state: st, ...r };
 }
 
-async function recordUsage(settings: Settings, task: "summary" | "grade" | "recommend" | "rank", res: { inputTokens: number; outputTokens: number; model: string }) {
+async function recordUsage(settings: Settings, task: LlmTask, res: { inputTokens: number; outputTokens: number; model: string }) {
   await sql.insertUsage({
     at: new Date().toISOString(),
     provider: settings.llm.provider,
@@ -573,6 +573,30 @@ async function recordUsage(settings: Settings, task: "summary" | "grade" | "reco
     output_tokens: res.outputTokens,
     est_cost_usd: estimateCostUsd(settings.llm.provider, res.model, res.inputTokens, res.outputTokens),
   });
+}
+
+// ---- 月のまとめ(仕様 9.1) ----
+
+/** その月に読んだものとメモを Markdown にして手元に保存する。どこに置いたかを文で返す */
+export async function exportMonthDigest(state: AppState, ym: string): Promise<string> {
+  const n = monthReads(state.papers, state.memos, ym).length;
+  if (!n) throw new Error("この月に読んだものがありません");
+  const where = await saveFile(`onepaper-${ym}.md`, new TextEncoder().encode(monthDigest(state.papers, state.memos, ym)));
+  return `${where}(${n} 本)`;
+}
+
+/** 「関連研究」の下書きを頼む文面。API が無いときはこれを好きな AI に貼る */
+export function relatedWorkPrompt(state: AppState, ym: string): string {
+  const r = buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language);
+  return `${r.system}\n\n${r.user}`;
+}
+
+export async function draftRelatedWork(state: AppState, ym: string): Promise<string> {
+  if (!monthReads(state.papers, state.memos, ym).length) throw new Error("この月に読んだものがありません");
+  const llm = await makeProvider(state.settings);
+  const res = await llm.complete({ ...buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language), maxTokens: 4096, effort: "medium" });
+  await recordUsage(state.settings, "digest", res);
+  return res.text.trim();
 }
 
 // ---- 読み返し(仕様 9.1) ----

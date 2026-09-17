@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PageProps } from "../App";
-import { calendarLogs } from "@/core/app";
+import { apiUsable, calendarLogs, draftRelatedWork, exportMonthDigest, relatedWorkPrompt } from "@/core/app";
 import type { DayLog } from "@/core/types";
 import { pad2 } from "@/core/schedule/logicalDay";
 
@@ -32,7 +32,34 @@ export function CalendarPage({ state, go }: PageProps) {
     return map;
   }, [state.memos, state.papers]);
 
+  const [digestMsg, setDigestMsg] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const monthCount = [...memosByDate.entries()].filter(([d]) => d.startsWith(ym)).reduce((n, [, xs]) => n + xs.length, 0);
+
+  const act = async (fn: () => Promise<string>, show: (text: string) => void) => {
+    setBusy(true);
+    setDigestMsg(null);
+    try {
+      show(await fn());
+    } catch (e) {
+      setDigestMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** API が使えればその場で下書きを作る。無ければ頼む文面をコピーして、好きな AI に貼ってもらう */
+  const relatedWork = () =>
+    act(async () => {
+      if (await apiUsable(state.settings)) return draftRelatedWork(state, ym);
+      await navigator.clipboard.writeText(relatedWorkPrompt(state, ym));
+      return "";
+    }, (text) => (text ? setDraft(text) : setDigestMsg("頼む文面をコピーしました。ChatGPT や Claude などに貼ってください。")));
+
   const shift = (n: number) => {
+    setDraft(null);
+    setDigestMsg(null);
     const d = new Date(y, m - 1 + n, 1);
     setYm(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`);
   };
@@ -72,6 +99,21 @@ export function CalendarPage({ state, go }: PageProps) {
             </div>
           );
         })}
+      </div>
+      <div className="card" style={{ marginTop: 16 }}>
+        <strong>{y} 年 {m} 月のまとめ({monthCount} 本)</strong>
+        <p className="muted">読んだものとメモを 1 つにまとめます。輪講の資料や、卒論の関連研究の材料に。</p>
+        <div className="row">
+          <button className="btn secondary" disabled={busy || !monthCount} onClick={() => act(() => exportMonthDigest(state, ym), (where) => setDigestMsg(`書き出しました: ${where}`))}>Markdown で書き出す</button>
+          <button className="btn secondary" disabled={busy || !monthCount} onClick={relatedWork}>{busy ? "作成中…" : "「関連研究」の下書きを作る"}</button>
+        </div>
+        {digestMsg && <p className="muted">{digestMsg}</p>}
+        {draft && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <label>下書き(材料はあなたのメモだけです。引用する前に必ず論文で確かめてください)</label>
+            <textarea rows={14} readOnly value={draft} onFocus={(e) => e.target.select()} />
+          </div>
+        )}
       </div>
     </>
   );

@@ -29,3 +29,23 @@ describe("reviewsDue", () => {
     expect(reviewsDue(papers, memos, "2026-09-17", new Set([reviewKey("a", 7)])).map((d) => d.paper.id)).toEqual(["b"]);
   });
 });
+
+describe("月のまとめ", () => {
+  it("書かなかった見出しとタイトル行を落とす", async () => {
+    const { compactMemoBody } = await import("./records");
+    expect(compactMemoBody("# T\n\n## ひとこと\n良い\n\n## 手法\n\n\n## 結果\n- 速い\n\n## 疑問\n")).toBe("## ひとこと\n良い\n\n## 結果\n- 速い");
+  });
+  it("その月に読了したものだけ、読んだ順に", async () => {
+    const { monthDigest, buildRelatedWorkRequest } = await import("./records");
+    const papers = [newPaper({ title: "A", id: "a", authors: ["X", "Y", "Z"], year: 2020, doi: "10.1/a" }, [], "t"), newPaper({ title: "B", id: "b" }, [], "t")];
+    const memos = [memo("b", "2026-09-20", 1, "# B\n## ひとこと\nびー"), memo("a", "2026-09-03", 3, "# A\n## ひとこと\nえー"), memo("a", "2026-08-31", 1), memo("b", "2026-09-21", 0)];
+    const md = monthDigest(papers, memos, "2026-09");
+    expect(md).toContain("# 2026-09 に読んだもの(2 本)");
+    expect(md.indexOf("## A")).toBeLessThan(md.indexOf("## B"));
+    expect(md).toContain("X ほか, 2020 / https://doi.org/10.1/a");
+    expect(md).toContain("### ひとこと\nえー");
+    const req = buildRelatedWorkRequest(papers, memos, "2026-09", "ja");
+    expect(req.user).toContain("[1] A(X ほか, 2020)");
+    expect(req.user).toContain("[2] B");
+  });
+});
