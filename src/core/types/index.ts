@@ -33,6 +33,8 @@ export interface Paper {
   skip_count: number;
   bibtex: string | null;
   fulltext_tokens: number | null;
+  /** 無ければ paper。article は Web の記事(URL とタイトルだけ持つ) */
+  kind?: "paper" | "article";
   /** 入っているコース。コースを入れる前の papers.json には列が無い */
   course?: PaperCourse | null;
 }

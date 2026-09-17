@@ -103,7 +103,8 @@ Markdown と JSON は人が読める。SQLite は集計と検索のためのイ�
       "skip_count": 0,
       "bibtex": null,                       // v1 で埋める
       "fulltext_tokens": null,              // 全文抽出済みなら概算トークン数
-      "course": null                        // { id, title, step, stage: 'survey'|'classic'|'recent' }。8.1
+      "course": null,                       // { id, title, step, stage: 'survey'|'classic'|'recent' }。8.1
+      "kind": "paper"                       // 'paper'(無ければこれ)| 'article'。記事は id が "url:<URL>"
     }
   ]
 }
@@ -361,6 +362,12 @@ interface LlmProvider {
 - 429 は 3 秒待って 1 回だけ再試行。それでも失敗したソースは警告を出して他のソースの結果だけ返す。
 - OA の PDF リンクは各ソースから取る(OpenAlex `best_oa_location.pdf_url` / `open_access.oa_url`、Semantic Scholar `openAccessPdf`、Crossref `link` の PDF、arXiv、J-STAGE)。取れないものは `pdf_url = null`。
 - 学術 API の応答は `state.sqlite` に 7 日キャッシュ。
+
+### 8.0 記事(2026-09-18)
+
+技術ブログや解説記事も「今日の 1 本」にできる(論文が重い日の逃げ道)。入れるのは URL とタイトルだけで、本文は取りに行かない。
+理由: CORS 中継は HTML を通さない方針で、デスクトップ版も HTTP の行き先を絞っている。どちらも意図した制限なので広げない。
+id は `url:<計測用パラメータと # を落とした URL>`(同じ記事は重複になる)。掲載(`venue`)はホスト名。AI 要約は「本文を貼り付ける」が既定になる。
 
 ### 8.1 コース(2026-09-18、design-questions 8 章)
 

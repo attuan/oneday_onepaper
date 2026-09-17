@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { PageProps } from "../App";
-import { addPaper, exportBibtex, importBibtex, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
+import { addMany, addPaper, exportBibtex, importBibtex, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
+import { articleInput } from "@/core/papers/article";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
@@ -13,6 +14,8 @@ export function PapersPage({ state, setState, go }: PageProps) {
   const [msg, setMsg] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showDoi, setShowDoi] = useState(false);
+  const [showArticle, setShowArticle] = useState(false);
+  const [article, setArticle] = useState({ url: "", title: "" });
   const [doiText, setDoiText] = useState("");
   const [showBib, setShowBib] = useState(false);
   const [bibText, setBibText] = useState("");
@@ -33,6 +36,18 @@ export function PapersPage({ state, setState, go }: PageProps) {
     const r = await importCsv(state, await file.text());
     setState(r.state);
     setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+  };
+
+  const onArticle = async () => {
+    const input = articleInput(article.url, article.title);
+    if (!input) return;
+    const r = await addMany(state, [input]);
+    setState(r.state);
+    setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+    if (r.added) {
+      setArticle({ url: "", title: "" });
+      setShowArticle(false);
+    }
   };
 
   const onDoi = async () => {
@@ -102,6 +117,7 @@ export function PapersPage({ state, setState, go }: PageProps) {
           </label>
           <button className="btn secondary" onClick={() => setShowBib((v) => !v)}>BibTeX</button>
           <button className="btn secondary" onClick={() => setShowDoi((v) => !v)}>DOI で追加</button>
+          <button className="btn secondary" onClick={() => setShowArticle((v) => !v)}>記事を追加</button>
           <button className="btn" onClick={() => setShowAdd((v) => !v)}>手入力で追加</button>
         </div>
       </div>
@@ -136,6 +152,14 @@ export function PapersPage({ state, setState, go }: PageProps) {
             <textarea rows={4} value={doiText} onChange={(e) => setDoiText(e.target.value)} placeholder={"1706.03762\nhttps://doi.org/10.1109/CVPR.2016.90"} />
           </div>
           <button className="btn" disabled={busy || !doiText.trim()} onClick={onDoi}>{busy ? "取得中…" : "追加"}</button>
+        </div>
+      )}
+      {showArticle && (
+        <div className="card">
+          <p className="muted">技術ブログや解説記事も「今日の 1 本」にできます。論文が重い日に。本文は取り込まないので、AI 要約を使うときは本文を貼り付けてください。</p>
+          <div className="field"><label>URL</label><input value={article.url} onChange={(e) => setArticle({ ...article, url: e.target.value })} placeholder="https://zenn.dev/..." /></div>
+          <div className="field"><label>タイトル</label><input value={article.title} onChange={(e) => setArticle({ ...article, title: e.target.value })} /></div>
+          <button className="btn" disabled={!articleInput(article.url, article.title)} onClick={onArticle}>追加</button>
         </div>
       )}
       {showAdd && (

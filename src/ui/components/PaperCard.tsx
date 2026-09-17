@@ -3,7 +3,7 @@ import type { Paper } from "@/core/types";
 
 export function PaperMeta({ paper }: { paper: Paper }) {
   const bits = [paper.authors.join(", "), paper.year, paper.venue].filter(Boolean);
-  return <div className="muted">{bits.join(" · ") || "書誌情報なし"}</div>;
+  return <div className="muted">{paper.kind === "article" && <span className="badge">記事</span>} {bits.join(" · ") || "書誌情報なし"}</div>;
 }
 
 export function PaperLinks({ paper }: { paper: Paper }) {

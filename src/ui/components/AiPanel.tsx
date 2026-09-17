@@ -20,7 +20,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
   const [summary, setSummary] = useState<SummaryOutput | null>(null);
   const [grade, setGrade] = useState<GradeOutput | null>(null);
   const [pending] = useState(() => loadPending(paper.id));
-  const [inputKind, setInputKind] = useState<PaperContext["inputKind"]>(pending?.inputKind ?? "abstract");
+  const [inputKind, setInputKind] = useState<PaperContext["inputKind"]>(pending?.inputKind ?? (paper.kind === "article" && !paper.abstract ? "pasted" : "abstract"));
   const [pasted, setPasted] = useState("");
   const [fulltext, setFulltext] = useState<{ text: string; tokens: number } | null>(null);
   const [pdfAvailable, setPdfAvailable] = useState(false);

@@ -84,5 +84,6 @@ export function newPaper(input: Partial<Paper> & { title: string }, papers: Pape
     bibtex: input.bibtex ?? null,
     fulltext_tokens: null,
     course: input.course ?? null,
+    ...(input.kind === "article" ? { kind: "article" as const } : {}),
   };
 }
