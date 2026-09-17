@@ -18,6 +18,7 @@ export function HomePage({ state, go }: PageProps) {
         </div>
       ) : paper ? (
         <div className="card hero">
+          {state.onThinIce && <p className="badge">前回は読めませんでした。今日 1 行でも書けば、連続記録 {state.baseStreak} 日は続きます</p>}
           <div className="muted">今日の論文</div>
           <p className="title">{paper.title}</p>
           <PaperMeta paper={paper} />

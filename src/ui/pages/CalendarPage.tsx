@@ -66,7 +66,7 @@ export function CalendarPage({ state, go }: PageProps) {
                   <div className="s">Lv{r.level}{r.score !== null && ` ・ ${r.score} 点`}</div>
                 </button>
               ))}
-              {kind === "missed" && <div className="muted">未読</div>}
+              {kind === "missed" && <div className="muted">未読{log && log.streak > 0 && "(記録は継続)"}</div>}
               {kind === "rest" && <div className="muted">休み</div>}
               {kind === "grace" && <div className="muted">猶予</div>}
             </div>

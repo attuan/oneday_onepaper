@@ -118,6 +118,8 @@ export interface Settings {
   /** Lv3「しっかり」の文字数(段階を入れる前はこれが読了の条件だった) */
   min_memo_chars: number;
   extra_read_reward: "none" | "grace";
+  /** 1 日だけの未読では連続記録を切らない。2 日続けて休んだら切れる(仕様 5.4) */
+  forgive_single_miss: boolean;
   language: "ja" | "en";
   llm: {
     provider: LlmProviderName;
@@ -162,6 +164,7 @@ export const DEFAULT_SETTINGS: Omit<Settings, "data_dir"> = {
   standard_memo_chars: 80,
   min_memo_chars: 200,
   extra_read_reward: "none",
+  forgive_single_miss: true,
   language: "ja",
   llm: { provider: "anthropic", model: "claude-opus-5", base_url: null, summary_via: "auto", shortcut_name: "OneDayOnePaper" },
   grace: { enabled: false, per_month: 0 },

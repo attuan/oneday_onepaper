@@ -195,6 +195,7 @@ CREATE TABLE llm_usage (
   "standard_memo_chars": 80,              // Lv2 要点
   "min_memo_chars": 200,                  // Lv3 しっかり(段階を入れる前の読了条件)
   "extra_read_reward": "none",            // 'none' | 'grace'。既定 none
+  "forgive_single_miss": true,            // 1 日だけの未読では連続記録を切らない(5.4)
   "language": "ja",
   "llm": {
     "provider": "anthropic",              // 'anthropic' | 'ollama' | 'openai'(OpenAI 互換)
@@ -246,8 +247,15 @@ LINE のチャネルアクセストークン、読了を共有する Slack の W
 if 前日が rest        → kind = 'rest'
 elif 前日に読了あり    → kind = 'read',   streak += 1
 elif grace 有効 かつ grace_days > 0 → kind = 'grace', grace_days -= 1, streak 維持
-else                  → kind = 'missed', streak = 0
+else                  → kind = 'missed'
+                        forgive_single_miss かつ 直前(休みを除く)が未読でない → streak 維持(大目に見る)
+                        それ以外 → streak = 0
 ```
+
+**1 日だけの未読は大目に見る**(2026-09-18、既定でオン)。2 日続けて休んだら切れる。休みの日は数えない(未読・休み・未読 は 2 日連続)。
+理由: 習慣の弱い人には、罰が重いとアプリごとやめる原因になる。「2 日続けては休まない」だけを守らせる。
+大目に見た日は `kind = 'missed'` のまま `streak > 0` で記録される(カレンダーでは「未読(記録は継続)」)。
+翌日のホームには「今日 1 行でも書けば連続記録は続きます」と出す。猶予(`grace`)が残っていればそちらを先に使う。
 
 ### 5.5 複数本
 

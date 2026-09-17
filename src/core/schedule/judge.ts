@@ -15,7 +15,9 @@ export interface JudgeInput {
   readsByDate: Record<string, string[]>;
   /** 初回起動日。lastLoggedDate が null のときに使う */
   firstUseDate: string;
-  settings: Pick<Settings, "rest_weekdays" | "rest_periods" | "grace">;
+  settings: Pick<Settings, "rest_weekdays" | "rest_periods" | "grace"> & Partial<Pick<Settings, "forgive_single_miss">>;
+  /** 休みを除いた直前の日が「大目に見た未読」だったか。次も未読なら連続記録が切れる */
+  missedOnce?: boolean;
 }
 
 export interface JudgeResult {
@@ -34,6 +36,7 @@ export function judgeMissingDays(input: JudgeInput): JudgeResult {
   const newLogs: DayLog[] = [];
   let streak = input.lastStreak;
   let grace = input.graceDays;
+  let missedOnce = input.missedOnce ?? false;
 
   if (start > end) return { newLogs, streak, graceDays: grace };
 
@@ -43,14 +46,18 @@ export function judgeMissingDays(input: JudgeInput): JudgeResult {
     if (reads.length > 0) {
       kind = "read";
       streak += 1;
+      missedOnce = false;
     } else if (isRestDay(date, input.settings)) {
       kind = "rest";
     } else if (input.settings.grace.enabled && grace > 0) {
       kind = "grace";
       grace -= 1;
+      missedOnce = false;
     } else {
       kind = "missed";
-      streak = 0;
+      // 1 日だけの未読は大目に見る。2 日続けて(休みは数えない)休んだら切れる。罰が重いとアプリごとやめてしまうため
+      if (!(input.settings.forgive_single_miss && !missedOnce)) streak = 0;
+      missedOnce = true;
     }
     newLogs.push({ date, kind, paper_ids: reads, streak });
   }

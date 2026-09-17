@@ -36,6 +36,8 @@ export interface AppState {
   today: string;
   /** 前日までの連続記録 */
   baseStreak: number;
+  /** 休みを除いた直前の日を読まずに終え、大目に見てもらっている。今日も読まなければ連続記録が切れる */
+  onThinIce: boolean;
   graceDays: number;
 }
 
@@ -58,18 +60,20 @@ export async function bootstrap(): Promise<AppState> {
     firstUse = today;
     await sql.setMeta("first_use_date", firstUse);
   }
-  const { baseStreak, graceDays } = await runJudgement({ settings, memos, today, firstUse });
-  return { settings, papers, memos, today, baseStreak, graceDays };
+  const judged = await runJudgement({ settings, memos, today, firstUse });
+  return { settings, papers, memos, today, ...judged };
 }
 
 /** 未処理の日を判定して day_log に書く(仕様 5.4)。起動時と日付跨ぎで呼ぶ */
 export async function runJudgement(args: { settings: Settings; memos: Memo[]; today: string; firstUse: string }) {
   const last = await sql.lastDayLog();
+  const pardoned = (l: DayLog | null) => l?.kind === "missed" && l.streak > 0;
   const graceDays = Number((await sql.getMeta("grace_days")) ?? "0");
   const r = judgeMissingDays({
     lastLoggedDate: last?.date ?? null,
     lastStreak: last?.streak ?? 0,
     graceDays,
+    missedOnce: pardoned(await sql.lastNonRestDayLog()),
     today: args.today,
     readsByDate: readsByDate(args.memos),
     firstUseDate: args.firstUse,
@@ -77,7 +81,7 @@ export async function runJudgement(args: { settings: Settings; memos: Memo[]; to
   });
   if (r.newLogs.length) await sql.insertDayLogs(r.newLogs);
   if (r.graceDays !== graceDays) await sql.setMeta("grace_days", String(r.graceDays));
-  return { baseStreak: r.streak, graceDays: r.graceDays };
+  return { baseStreak: r.streak, graceDays: r.graceDays, onThinIce: pardoned(await sql.lastNonRestDayLog()) };
 }
 
 /** 日付が変わったときに App から呼ぶ */

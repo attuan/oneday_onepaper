@@ -188,6 +188,9 @@ export function SettingsPage({ state, setState }: PageProps) {
           ))}
           <div><button className="btn secondary small" onClick={() => setS({ ...s, rest_periods: [...s.rest_periods, { from: state.today, to: state.today }] })}>期間を追加</button></div>
         </div>
+        <div className="field">
+          <label><input type="checkbox" checked={s.forgive_single_miss} onChange={(e) => setS({ ...s, forgive_single_miss: e.target.checked })} /> 1 日だけの未読では連続記録を切らない(2 日続けて休むと切れる。休みの日は数えない)</label>
+        </div>
         <div className="row">
           <div className="field">
             <label>猶予</label>

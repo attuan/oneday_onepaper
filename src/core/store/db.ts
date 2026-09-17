@@ -55,6 +55,14 @@ export async function lastDayLog(): Promise<DayLog | null> {
   return rows[0] ? rowToDayLog(rows[0]) : null;
 }
 
+/** 休みを除いた最後の記録。「昨日は大目に見た未読だったか」を知るのに使う */
+export async function lastNonRestDayLog(): Promise<DayLog | null> {
+  const rows = await db.query<{ date: string; kind: string; paper_ids: string; streak: number }>(
+    "SELECT * FROM day_log WHERE kind != 'rest' ORDER BY date DESC LIMIT 1",
+  );
+  return rows[0] ? rowToDayLog(rows[0]) : null;
+}
+
 export async function dayLogsBetween(from: string, to: string): Promise<DayLog[]> {
   const rows = await db.query<{ date: string; kind: string; paper_ids: string; streak: number }>(
     "SELECT * FROM day_log WHERE date >= ? AND date <= ? ORDER BY date",

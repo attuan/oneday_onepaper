@@ -66,6 +66,14 @@ describe("judgeMissingDays", () => {
     expect(r.streak).toBe(3);
   });
 
+  it("1 日だけの未読は大目に見る。2 日続けたら切れる。休みは数えない", () => {
+    const settings = { ...base.settings, rest_weekdays: [1], forgive_single_miss: true }; // 月曜休み。2026-09-07 は月曜
+    const run = (readsByDate: Record<string, string[]>, missedOnce = false) =>
+      judgeMissingDays({ ...base, settings, missedOnce, lastLoggedDate: "2026-09-05", today: "2026-09-10", readsByDate }).newLogs.map((l) => `${l.kind}:${l.streak}`);
+    expect(run({ "2026-09-08": ["p"] })).toEqual(["missed:3", "rest:3", "read:4", "missed:4"]);
+    expect(run({})).toEqual(["missed:3", "rest:3", "missed:0", "missed:0"]);
+    expect(run({ "2026-09-08": ["p"] }, true)[0]).toBe("missed:0");
+  });
   it("猶予が有効なら消費して維持、切れたら missed", () => {
     const r = judgeMissingDays({
       ...base,
