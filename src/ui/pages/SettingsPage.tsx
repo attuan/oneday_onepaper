@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { exportData, getApiKey, getOpenAiKey, setOpenAiKey, getLineToken, getSemanticScholarKey, getShareWebhook, getSlackWebhook, importData, PartialImportError, platform, sendTestNotification, sendTestShare, setApiKey, setLineToken, setSemanticScholarKey, setShareWebhook, setSlackWebhook, updateSettings } from "@/core/app";
+import { arxivIndexAvailable, buildArxivIndex, exportData, getApiKey, getOpenAiKey, setOpenAiKey, getLineToken, getSemanticScholarKey, getShareWebhook, getSlackWebhook, hasArxivParquet, importData, PartialImportError, platform, removeArxivIndex, sendTestNotification, sendTestShare, setApiKey, setLineToken, setSemanticScholarKey, setShareWebhook, setSlackWebhook, updateSettings } from "@/core/app";
+import { ARXIV_METADATA_BYTES, DEFAULT_INDEX_CATEGORIES, describeIndex, parseCategories } from "@/core/scholar/arxivLocal";
+import type { ArxivIndexProgress } from "@/core/store/backend";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { stashImportReport } from "../components/ImportNotice";
 import { SOURCES } from "@/core/scholar/sources";
@@ -42,8 +44,16 @@ export function SettingsPage({ state, setState }: PageProps) {
   const [testing, setTesting] = useState<NotifyChannel | null>(null);
   const web = platform() === "web";
   const keyStore = web ? "このブラウザに保存。暗号化はされません" : "OS のキーチェーンに保存";
+  // arXiv の手元の索引(デスクトップ版だけ)
+  const [idxCats, setIdxCats] = useState(() => (state.arxivIndex?.categories.length ? state.arxivIndex.categories : DEFAULT_INDEX_CATEGORIES).join(", "));
+  const [idxProgress, setIdxProgress] = useState<ArxivIndexProgress | null>(null);
+  const [idxBusy, setIdxBusy] = useState(false);
+  const [idxMsg, setIdxMsg] = useState<string | null>(null);
+  const [hasParquet, setHasParquet] = useState(false);
+  const canIndex = arxivIndexAvailable();
 
   useEffect(() => {
+    if (canIndex) hasArxivParquet(state).then(setHasParquet);
     getApiKey().then((k) => setHasKey(!!k));
     getOpenAiKey().then((k) => setHasOaKey(!!k));
     getSemanticScholarKey().then((k) => setHasS2Key(!!k));
@@ -51,6 +61,33 @@ export function SettingsPage({ state, setState }: PageProps) {
     getLineToken().then((k) => setHasLine(!!k));
     getShareWebhook().then((k) => setHasShare(!!k));
   }, []);
+
+  const buildIndex = async () => {
+    setIdxBusy(true);
+    setIdxMsg(null);
+    setIdxProgress(null);
+    try {
+      const next = await buildArxivIndex(state, parseCategories(idxCats), setIdxProgress);
+      setState(next);
+      setHasParquet(true);
+      setIdxMsg(next.arxivIndex ? `作りました: ${describeIndex(next.arxivIndex)}` : "作りました");
+    } catch (e) {
+      setIdxMsg(`失敗しました: ${errText(e)}`);
+    } finally {
+      setIdxBusy(false);
+      setIdxProgress(null);
+    }
+  };
+
+  const dropIndex = async (alsoParquet: boolean) => {
+    try {
+      setState(await removeArxivIndex(state, alsoParquet));
+      if (alsoParquet) setHasParquet(false);
+      setIdxMsg(alsoParquet ? "索引と取得済みのデータを消しました" : "索引を消しました");
+    } catch (e) {
+      setIdxMsg(`失敗しました: ${errText(e)}`);
+    }
+  };
 
   const save = async () => {
     try {
@@ -156,7 +193,7 @@ export function SettingsPage({ state, setState }: PageProps) {
   return (
     <>
       <h1>設定</h1>
-      <p><label><input type="checkbox" checked={s.advanced} onChange={(e) => setS({ ...s, advanced: e.target.checked })} /> 詳しい設定と機能を出す</label><span className="muted">(BibTeX・CSV、検索ソースの選択、API 使用量、ポモドーロ、日付の切り替え時刻、猶予)</span></p>
+      <p><label><input type="checkbox" checked={s.advanced} onChange={(e) => setS({ ...s, advanced: e.target.checked })} /> 詳しい設定と機能を出す</label><span className="muted">(BibTeX・CSV、検索ソースの選択、arXiv の手元の索引、API 使用量、ポモドーロ、日付の切り替え時刻、猶予)</span></p>
       <div className="card">
         <h2 style={{ marginTop: 0 }}>スケジュール</h2>
         <div className="row" hidden={!s.advanced}>
@@ -276,7 +313,7 @@ export function SettingsPage({ state, setState }: PageProps) {
         <h2 style={{ marginTop: 0 }}>論文検索</h2>
         <div className="field">
           <label>既定で使うソース(検索画面でその都度変えられる)</label>
-          {SOURCES.map((src) => (
+          {SOURCES.filter((src) => !src.local || state.arxivIndex).map((src) => (
             <div key={src.id}>
               <label><input type="checkbox" checked={s.search.sources.includes(src.id)} onChange={() => toggleSource(src.id)} /> {src.label}</label>
               <span className="muted"> — {src.note}</span>
@@ -287,6 +324,34 @@ export function SettingsPage({ state, setState }: PageProps) {
           <label>Semantic Scholar の API キー(任意。{keyStore}。{hasS2Key ? "設定済み" : "未設定"})</label>
           <input type="password" value={s2Key} onChange={(e) => setS2Key(e.target.value)} placeholder={hasS2Key ? "変更する場合のみ入力" : "なしでも動くが、レート制限が厳しい"} />
         </div>
+      </div>
+
+      <div className="card" hidden={!s.advanced || !canIndex}>
+        <h2 style={{ marginTop: 0 }}>arXiv の手元の索引</h2>
+        <p className="muted">
+          arXiv 全体のスナップショット(Hugging Face の secemp9/arxiv-complete)から、選んだカテゴリの論文のタイトルと抄録を手元に入れておきます。
+          「論文を探す」でレート制限もネットも無しに引け、カレンダーの月のまとめでは読んだものに近い論文が出ます。
+          最初に約 {Math.round(ARXIV_METADATA_BYTES / 1024 / 1024 / 100) / 10} GB を取得し、数分かかります。新着は入りません(新しいものは普通の arXiv 検索で)。
+        </p>
+        {state.arxivIndex ? <p>今の索引: {describeIndex(state.arxivIndex)}</p> : <p className="muted">まだ作っていません。</p>}
+        <div className="field">
+          <label>入れるカテゴリ(空白か , 区切り。「cs」なら cs.* 全部。空なら全部で数 GB になる)</label>
+          <input value={idxCats} onChange={(e) => setIdxCats(e.target.value)} placeholder={DEFAULT_INDEX_CATEGORIES.join(", ")} disabled={idxBusy} />
+          <span className="muted">arXiv のカテゴリ名: cs.CL(自然言語処理)、cs.LG(機械学習)、cs.CV(画像)、cs.IR(検索)、stat.ML、math.OC、q-bio.* など</span>
+        </div>
+        <div className="row">
+          <button className="btn secondary small" disabled={idxBusy} onClick={buildIndex}>{idxBusy ? "作成中…" : state.arxivIndex ? "作り直す" : hasParquet ? "索引を作る(取得済みのデータから)" : "取得して索引を作る"}</button>
+          {state.arxivIndex && <ConfirmButton label="索引を消す" confirmLabel="索引を消す(取得したデータは残す)" disabled={idxBusy} onConfirm={() => dropIndex(false)} />}
+          {(state.arxivIndex || hasParquet) && <ConfirmButton label="全部消す" confirmLabel="索引と取得済みのデータを消す" disabled={idxBusy} onConfirm={() => dropIndex(true)} />}
+        </div>
+        {idxProgress && (
+          <p className="muted">
+            {idxProgress.phase === "download" && `取得中 ${Math.round(idxProgress.done / 1024 / 1024)} / ${idxProgress.total ? Math.round(idxProgress.total / 1024 / 1024) : "?"} MB`}
+            {idxProgress.phase === "read" && `読み込み中 ${idxProgress.done.toLocaleString()} / ${idxProgress.total.toLocaleString()} 本(${idxProgress.kept.toLocaleString()} 本を索引に)`}
+            {idxProgress.phase === "finish" && `全文索引を作っています(${idxProgress.kept.toLocaleString()} 本)…`}
+          </p>
+        )}
+        {idxMsg && <p className={idxMsg.startsWith("失敗") ? "error" : "ok"}>{idxMsg}</p>}
       </div>
 
       <div className="card">

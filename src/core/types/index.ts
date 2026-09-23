@@ -85,7 +85,7 @@ export type LlmProviderName = "anthropic" | "ollama" | "openai";
  */
 export type AiVia = "auto" | "api" | "shortcut" | "paste";
 /** 論文検索のソース。一覧と説明は core/scholar/sources.ts */
-export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "pubmed" | "cinii" | "jstage";
+export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "arxiv_local" | "pubmed" | "cinii" | "jstage";
 export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "digest";
 
 export interface LlmUsageRow {

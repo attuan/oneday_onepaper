@@ -18,8 +18,8 @@ import { parseHandoffResult } from "@/core/llm/handoff";
 import type { LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
-import { appFetch, backendName, fs, joinPath, pdf, saveFile, secret } from "@/core/store/backend";
-import { buildRelatedWorkRequest, monthDigest, monthReads, reviewKey, reviewsDue, type ReviewItem } from "@/core/records";
+import { appFetch, arxivIndexBackend, backendName, fs, joinPath, pdf, saveFile, secret, type ArxivIndexProgress, type ArxivIndexStats } from "@/core/store/backend";
+import { buildRelatedWorkRequest, monthDigest, monthReads, reviewKey, reviewsDue, type NearbyPaper, type ReviewItem } from "@/core/records";
 import { exportArchive, importArchive, type ImportReport } from "@/core/archive";
 export { PartialImportError, type ImportReport } from "@/core/archive";
 import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/settings";
@@ -28,6 +28,7 @@ import { findMemoForPaper, listMemos, readsByDate, saveMemo } from "@/core/store
 import * as sql from "@/core/store/db";
 import { extractIdentifiers, lookupDoi } from "@/core/scholar/openalex";
 import { DEFAULT_SOURCES, dedupe, interleave, searchSource, sourceInfo } from "@/core/scholar/sources";
+import { ARXIV_METADATA_URL, arxivIdOf, arxivIndexPath, arxivParquetPath, similarInIndex } from "@/core/scholar/arxivLocal";
 import type { Candidate } from "@/core/scholar/types";
 
 export interface AppState {
@@ -40,6 +41,8 @@ export interface AppState {
   /** 休みを除いた直前の日を読まずに終え、大目に見てもらっている。今日も読まなければ連続記録が切れる */
   onThinIce: boolean;
   graceDays: number;
+  /** arXiv の手元の索引(デスクトップ版で作ったとき)。無ければ null */
+  arxivIndex: ArxivIndexStats | null;
 }
 
 export const API_KEY_SECRET = "anthropic_api_key";
@@ -62,7 +65,7 @@ export async function bootstrap(): Promise<AppState> {
     await sql.setMeta("first_use_date", firstUse);
   }
   const judged = await runJudgement({ settings, memos, today, firstUse });
-  return { settings, papers, memos, today, ...judged };
+  return { settings, papers, memos, today, ...judged, arxivIndex: await loadArxivIndexStats(dataDir) };
 }
 
 /** 未処理の日を判定して day_log に書く(仕様 5.4)。起動時と日付跨ぎで呼ぶ */
@@ -248,6 +251,8 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
 
   // ソースは並列、同じソースへのクエリは順番に(レート制限に当たらないように)
   const s2Key = sources.some((s) => s.id === "semanticscholar") ? await secret.get(S2_KEY_SECRET) : null;
+  const idx = arxivIndexBackend();
+  const arxivIndex = idx && state.arxivIndex ? { backend: idx, path: state.arxivIndex.path } : null;
   const perSource: SearchResult["perSource"] = [];
   const lists = await Promise.all(
     sources.map(async (src) => {
@@ -256,7 +261,7 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
       const got: Candidate[] = [];
       for (const q of qs) {
         try {
-          got.push(...(await searchSource(src.id, q, appFetch, { perPage, semanticScholarKey: s2Key })));
+          got.push(...(await searchSource(src.id, q, appFetch, { perPage, semanticScholarKey: s2Key, arxivIndex })));
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           const hint = /\b429\b/.test(msg) ? (src.id === "semanticscholar" ? "。レート制限です。設定画面で API キーを入れるか、少し待ってから再検索してください" : "。レート制限です。少し待ってから再検索してください") : "";
@@ -586,17 +591,80 @@ export async function exportMonthDigest(state: AppState, ym: string): Promise<st
 }
 
 /** 「関連研究」の下書きを頼む文面。API が無いときはこれを好きな AI に貼る */
-export function relatedWorkPrompt(state: AppState, ym: string): string {
-  const r = buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language);
+export function relatedWorkPrompt(state: AppState, ym: string, nearby: Candidate[] = []): string {
+  const r = buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language, toNearby(nearby));
   return `${r.system}\n\n${r.user}`;
 }
 
-export async function draftRelatedWork(state: AppState, ym: string): Promise<string> {
+export async function draftRelatedWork(state: AppState, ym: string, nearby: Candidate[] = []): Promise<string> {
   if (!monthReads(state.papers, state.memos, ym).length) throw new Error("この月に読んだものがありません");
   const llm = await makeProvider(state.settings);
-  const res = await llm.complete({ ...buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language), maxTokens: 4096, effort: "medium" });
+  const res = await llm.complete({ ...buildRelatedWorkRequest(state.papers, state.memos, ym, state.settings.language, toNearby(nearby)), maxTokens: 4096, effort: "medium" });
   await recordUsage(state.settings, "digest", res);
   return res.text.trim();
+}
+
+function toNearby(cands: Candidate[]): NearbyPaper[] {
+  return cands.map((c) => ({ id: arxivIdOf(c as Paper) ? `arXiv:${arxivIdOf(c as Paper)}` : c.id, title: c.title, authors: c.authors, year: c.year }));
+}
+
+// ---- arXiv の手元の索引(デスクトップ版) ----
+
+/** この実装で索引が作れるか(Web 版では作れない) */
+export function arxivIndexAvailable(): boolean {
+  return arxivIndexBackend() !== null;
+}
+
+async function loadArxivIndexStats(dataDir: string): Promise<ArxivIndexStats | null> {
+  const b = arxivIndexBackend();
+  if (!b) return null;
+  try {
+    return await b.stats(arxivIndexPath(dataDir));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parquet(無ければ取得。1.6 GB)から、選んだカテゴリの索引を作る。作り直しも同じ。
+ * Parquet はデータフォルダの cache/ に残し、カテゴリを変えて作り直すときに再利用する
+ */
+export async function buildArxivIndex(state: AppState, categories: string[], onProgress: (p: ArxivIndexProgress) => void): Promise<AppState> {
+  const b = arxivIndexBackend();
+  if (!b) throw new Error("手元の索引はデスクトップ版だけの機能です");
+  const dir = state.settings.data_dir;
+  const parquet = arxivParquetPath(dir);
+  if (!(await fs.exists(parquet))) await b.download(ARXIV_METADATA_URL, parquet, onProgress);
+  const stats = await b.build(parquet, arxivIndexPath(dir), categories, onProgress);
+  return { ...state, arxivIndex: stats };
+}
+
+/** 索引を消す。alsoParquet なら取得した Parquet も消す(次に作るときは取り直しになる) */
+export async function removeArxivIndex(state: AppState, alsoParquet: boolean): Promise<AppState> {
+  const dir = state.settings.data_dir;
+  for (const p of [arxivIndexPath(dir), ...(alsoParquet ? [arxivParquetPath(dir)] : [])]) if (await fs.exists(p)) await fs.removeFile(p);
+  return { ...state, arxivIndex: null };
+}
+
+export async function hasArxivParquet(state: AppState): Promise<boolean> {
+  return fs.exists(arxivParquetPath(state.settings.data_dir));
+}
+
+/** その月に読んだ論文に近い、未読で手元にも無い論文を索引から引く。索引が無ければ空 */
+export async function nearbyFromIndex(state: AppState, ym: string, max = 10): Promise<Candidate[]> {
+  const b = arxivIndexBackend();
+  if (!b || !state.arxivIndex) return [];
+  const known = new Set(state.papers.filter((p) => p.status !== "removed").map((p) => p.id));
+  const lists: Candidate[][] = [];
+  for (const { paper } of monthReads(state.papers, state.memos, ym)) {
+    if (paper.kind === "article") continue;
+    try {
+      lists.push((await similarInIndex(b, state.arxivIndex.path, paper, 5)).filter((c) => !known.has(c.id)));
+    } catch {
+      /* 索引が壊れているなど。無視して続ける */
+    }
+  }
+  return dedupe(interleave(lists)).slice(0, max);
 }
 
 // ---- 読み返し(仕様 9.1) ----

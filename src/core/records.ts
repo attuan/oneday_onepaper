@@ -107,13 +107,28 @@ function demote(body: string): string {
   return body.replace(/^(#{2,})\s/gm, "#$1 ");
 }
 
-/** 月のメモから「関連研究」の節の下書きを作らせる。材料はメモだけ。メモに無いことを足させない */
-export function buildRelatedWorkRequest(papers: Paper[], memos: Memo[], ym: string, language: string): { system: string; user: string } {
+/** 手元の arXiv 索引から引いた、近いが未読の論文(関連研究の材料ではなく「まだ読んでいない観点」の材料) */
+export interface NearbyPaper {
+  id: string;
+  title: string;
+  authors?: string[];
+  year?: number | null;
+}
+
+/**
+ * 月のメモから「関連研究」の節の下書きを作らせる。材料はメモだけ。メモに無いことを足させない。
+ * nearby(手元の索引で見つけた未読の論文)は本文には入れさせず、最後の「まだ読んでいなさそうな観点」にだけ使わせる
+ */
+export function buildRelatedWorkRequest(papers: Paper[], memos: Memo[], ym: string, language: string, nearby: NearbyPaper[] = []): { system: string; user: string } {
   const lang = language === "en" ? "English" : "日本語";
   const reads = monthReads(papers, memos, ym);
   const list = reads.map(({ paper, memo }, i) => `[${i + 1}] ${paper.title}(${cite(paper)})\n${compactMemoBody(memo.body) || "(メモなし)"}`).join("\n\n");
+  const nearbyRule = nearby.length ? "「まだ読んでいなさそうな観点」には、下の「近いが未読の論文」を [A 番号] で挙げてよい(タイトルしか分かっていないので、内容を断定しない)。ただし関連研究の本文にはこれらを入れないこと。" : "";
+  const nearbyList = nearby.length
+    ? `\n\n近いが未読の論文(手元の arXiv 索引から。本文は読んでいない):\n${nearby.map((n, i) => `[A${i + 1}] ${n.title}(${[n.authors?.length ? (n.authors.length > 2 ? `${n.authors[0]} ほか` : n.authors.join(", ")) : null, n.year].filter(Boolean).join(", ")}) ${n.id}`).join("\n")}`
+    : "";
   return {
-    system: `あなたは研究室の先輩です。後輩が 1 か月で読んだ論文のメモから、卒論・修論の「関連研究」の節の下書きを作ってください。材料はメモに書かれていることだけです。メモに無い内容や、読んでいない論文を足さないでください。論文は [番号] で引用し、似たものをまとめて流れを作り、最後に「この後輩がまだ読んでいなさそうな観点」を 2〜3 個、箇条書きで挙げてください。出力は${lang}の Markdown で。`,
-    user: `読んだ論文とメモ(${ym}):\n\n${list}`,
+    system: `あなたは研究室の先輩です。後輩が 1 か月で読んだ論文のメモから、卒論・修論の「関連研究」の節の下書きを作ってください。材料はメモに書かれていることだけです。メモに無い内容や、読んでいない論文を足さないでください。論文は [番号] で引用し、似たものをまとめて流れを作り、最後に「この後輩がまだ読んでいなさそうな観点」を 2〜3 個、箇条書きで挙げてください。${nearbyRule}出力は${lang}の Markdown で。`,
+    user: `読んだ論文とメモ(${ym}):\n\n${list}${nearbyList}`,
   };
 }

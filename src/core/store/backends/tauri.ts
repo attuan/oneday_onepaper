@@ -1,11 +1,11 @@
 // Tauri 実装。invoke とプラグインを呼ぶのはこのファイルだけ
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { appConfigDir, downloadDir } from "@tauri-apps/api/path";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import { joinPath, type Backend, type Row, type SqlParam } from "../backend";
+import { joinPath, type ArxivIndexHit, type ArxivIndexProgress, type ArxivIndexStats, type Backend, type Row, type SqlParam } from "../backend";
 
 async function readBinary(path: string): Promise<Uint8Array | null> {
   if (!(await invoke<boolean>("path_exists", { path }))) return null;
@@ -72,6 +72,22 @@ export const tauriBackend: Backend = {
   },
 
   fetch: tauriFetch,
+
+  arxivIndex: {
+    download: async (url, dest, onProgress) => {
+      const ch = new Channel<ArxivIndexProgress>();
+      ch.onmessage = onProgress;
+      await invoke("download_large", { url, dest, onProgress: ch });
+    },
+    build: (parquet, dest, categories, onProgress) => {
+      const ch = new Channel<ArxivIndexProgress>();
+      ch.onmessage = onProgress;
+      return invoke<ArxivIndexStats>("arxiv_index_build", { parquet, dest, categories, onProgress: ch });
+    },
+    stats: (path) => invoke<ArxivIndexStats | null>("arxiv_index_stats", { path }),
+    search: (path, q) =>
+      invoke<ArxivIndexHit[]>("arxiv_index_search", { path, query: q.query, mode: q.mode, categories: q.categories ?? [], yearFrom: q.yearFrom ?? null, yearTo: q.yearTo ?? null, limit: q.limit ?? 25 }),
+  },
 
   // WebView の <a download> は当てにならないので、ダウンロードフォルダに直接書く
   saveFile: async (fileName, data) => {

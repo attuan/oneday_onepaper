@@ -3,6 +3,7 @@
 // モバイル(iOS / Android)ではトレイと「閉じても隠す」が無いので、その 2 つだけ desktop に限定する。
 // コマンドは共通。
 
+mod arxiv_index;
 mod db;
 mod fs;
 mod pdf;
@@ -52,6 +53,10 @@ pub fn run() {
             secret::secret_delete,
             pdf::download_file,
             pdf::extract_pdf_text,
+            arxiv_index::download_large,
+            arxiv_index::arxiv_index_build,
+            arxiv_index::arxiv_index_stats,
+            arxiv_index::arxiv_index_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

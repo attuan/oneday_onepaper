@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "fetch-arxiv-sample": "node scripts/fetch-arxiv-sample.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

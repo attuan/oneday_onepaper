@@ -11,7 +11,9 @@ export function ExplorePage({ state, setState, go }: PageProps) {
   const [keywords, setKeywords] = useState("");
   const [purpose, setPurpose] = useState("");
   const [useLlm, setUseLlm] = useState(true);
-  const [sources, setSources] = useState<Set<SourceId>>(() => new Set(state.settings.search.sources));
+  // 手元の索引は、作ってあるときだけ出す
+  const visibleSources = SOURCES.filter((s) => !s.local || state.arxivIndex);
+  const [sources, setSources] = useState<Set<SourceId>>(() => new Set(state.settings.search.sources.filter((id) => visibleSources.some((s) => s.id === id))));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -93,7 +95,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
         <div className="field">
           <label>検索するソース(既定は設定画面で変えられる)</label>
           <div className="row">
-            {SOURCES.map((s) => (
+            {visibleSources.map((s) => (
               <label key={s.id} title={s.note}><input type="checkbox" checked={sources.has(s.id)} onChange={() => toggleSource(s.id)} /> {s.label}</label>
             ))}
           </div>

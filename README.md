@@ -55,6 +55,8 @@ npm run tauri dev      # デスクトップアプリとして起動
 npm run dev            # ブラウザ版。http://localhost:1420 を開く
 npm test               # ユニットテスト(src/ と proxy/)
 npm run typecheck
+npm run eval           # LLM を実際に呼ぶ評価(要約の根拠が原文にあるか)。ANTHROPIC_API_KEY などが要る。詳細は src/core/llm/eval/summary.eval.ts
+(cd src-tauri && cargo test --lib)   # Rust 側。ODOP_TEST_PARQUET=<metadata と同じ列の Parquet> を付けると索引の作成と検索も通す
 ```
 
 初回の `tauri dev` は Rust の依存をビルドするため数分かかる。
@@ -258,5 +260,8 @@ proxy/        ブラウザ版の CORS 中継(Cloudflare Workers)
   記事(URL)の追加、ホーム画面への追加と共有からの追加、1 日だけの未読は大目に見る、ヒートマップ・読み返し・月のまとめ、詳しい機能を既定で隠す、
   入門コース(全体像 → 基礎 → 最近 の N 本。LLM なしでも組める)、差分フィードバック、要約の根拠の照合、
   OpenAI 互換プロバイダ、Apple Intelligence(ショートカット経由。実機は未検証)と「好きな AI に貼り付ける」
+- v4: arXiv の手元の索引(デスクトップ版。Hugging Face の secemp9/arxiv-complete の metadata から選んだカテゴリを SQLite FTS5 に入れ、
+  「論文を探す」のソースと月のまとめの「近いが未読の論文」に使う)、TeX 本文の平文化(`src/core/papers/tex.ts`)、
+  実物の arXiv 論文での要約・採点の評価(`npm run eval`。材料は `scripts/fetch-arxiv-sample.mjs` で取り直せる)
 
 デスクトップ版はウィンドウを閉じても終了せず、メニューバーのアイコンから「開く」「終了」を選べる。

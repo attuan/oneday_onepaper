@@ -2,6 +2,7 @@
 
 import type { SourceId } from "@/core/types";
 import { searchArxiv } from "./arxiv";
+import { searchArxivLocal } from "./arxivLocal";
 import { searchCinii } from "./cinii";
 import { searchCrossref } from "./crossref";
 import { searchJstage } from "./jstage";
@@ -9,6 +10,7 @@ import { searchWorks } from "./openalex";
 import { searchPubmed } from "./pubmed";
 import { searchSemanticScholar } from "./semanticscholar";
 import type { Candidate, FetchFn } from "./types";
+import type { ArxivIndexBackend } from "@/core/store/backend";
 
 export interface SourceInfo {
   id: SourceId;
@@ -19,6 +21,8 @@ export interface SourceInfo {
   lang: "en" | "ja";
   /** 任意の API キーを使えるか */
   optionalKey?: boolean;
+  /** ネットではなく手元の索引を引く。索引が無い環境(Web、未作成)では UI が隠す */
+  local?: boolean;
 }
 
 export const SOURCES: SourceInfo[] = [
@@ -26,6 +30,7 @@ export const SOURCES: SourceInfo[] = [
   { id: "semanticscholar", label: "Semantic Scholar", note: "CS 系に強い。キーなしだと 1 秒に数回まで", lang: "en", optionalKey: true },
   { id: "crossref", label: "Crossref", note: "DOI 登録元。網羅的だが抄録は少ない", lang: "en" },
   { id: "arxiv", label: "arXiv", note: "プレプリント。PDF は必ず取れる", lang: "en" },
+  { id: "arxiv_local", label: "arXiv(手元の索引)", note: "設定で作った索引を引く。オフラインで動き、レート制限が無い。新着は入らない", lang: "en", local: true },
   { id: "pubmed", label: "PubMed", note: "医学・生命科学", lang: "en" },
   { id: "cinii", label: "CiNii Research", note: "日本語論文。日本語クエリで検索する", lang: "ja" },
   { id: "jstage", label: "J-STAGE", note: "国内学会誌。本文 PDF が多い", lang: "ja" },
@@ -43,6 +48,8 @@ export interface SearchOpts {
   semanticScholarKey?: string | null;
   /** 429 のあと再試行するまでの待ち時間 */
   retryDelayMs?: number;
+  /** arXiv の手元の索引(arxiv_local 用)。無ければそのソースは失敗する */
+  arxivIndex?: { backend: ArxivIndexBackend; path: string } | null;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -69,6 +76,9 @@ async function searchOnce(id: SourceId, query: string, fetchFn: FetchFn, opts: S
       return searchCrossref(query, fetchFn, n);
     case "arxiv":
       return searchArxiv(query, fetchFn, n);
+    case "arxiv_local":
+      if (!opts.arxivIndex) throw new Error("手元の索引がありません。設定の「arXiv の手元の索引」で作ってください");
+      return searchArxivLocal(opts.arxivIndex.backend, opts.arxivIndex.path, query, n);
     case "pubmed":
       return searchPubmed(query, fetchFn, n);
     case "cinii":

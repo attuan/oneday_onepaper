@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PageProps } from "../App";
-import { apiUsable, calendarLogs, draftRelatedWork, exportMonthDigest, relatedWorkPrompt } from "@/core/app";
+import { addMany, apiUsable, calendarLogs, draftRelatedWork, exportMonthDigest, nearbyFromIndex, relatedWorkPrompt } from "@/core/app";
+import type { Candidate } from "@/core/scholar/types";
 import type { DayLog } from "@/core/types";
 import { pad2 } from "@/core/schedule/logicalDay";
 
-export function CalendarPage({ state, go }: PageProps) {
+export function CalendarPage({ state, setState, go }: PageProps) {
   const [ym, setYm] = useState(state.today.slice(0, 7));
   const [logs, setLogs] = useState<DayLog[]>([]);
   const [y, m] = ym.split("-").map(Number);
@@ -37,6 +38,27 @@ export function CalendarPage({ state, go }: PageProps) {
   const [busy, setBusy] = useState(false);
   const monthCount = [...memosByDate.entries()].filter(([d]) => d.startsWith(ym)).reduce((n, [, xs]) => n + xs.length, 0);
 
+  // 手元の arXiv 索引があれば、読んだものに近い未読の論文を出す
+  const [nearby, setNearby] = useState<Candidate[]>([]);
+  useEffect(() => {
+    if (!state.arxivIndex || !monthCount) {
+      setNearby([]);
+      return;
+    }
+    let alive = true;
+    nearbyFromIndex(state, ym).then((xs) => alive && setNearby(xs)).catch(() => alive && setNearby([]));
+    return () => {
+      alive = false;
+    };
+  }, [state, ym, monthCount]);
+
+  const queueNearby = async (c: Candidate) => {
+    const r = await addMany(state, [{ ...c, source: "manual", reason: `${ym} に読んだものに近い(手元の arXiv 索引から)` }]);
+    setState(r.state);
+    setNearby(nearby.filter((x) => x.id !== c.id));
+    if (r.errors.length) setDigestMsg(r.errors.join(" / "));
+  };
+
   const act = async (fn: () => Promise<string>, show: (text: string) => void) => {
     setBusy(true);
     setDigestMsg(null);
@@ -52,8 +74,8 @@ export function CalendarPage({ state, go }: PageProps) {
   /** API が使えればその場で下書きを作る。無ければ頼む文面をコピーして、好きな AI に貼ってもらう */
   const relatedWork = () =>
     act(async () => {
-      if (await apiUsable(state.settings)) return draftRelatedWork(state, ym);
-      await navigator.clipboard.writeText(relatedWorkPrompt(state, ym));
+      if (await apiUsable(state.settings)) return draftRelatedWork(state, ym, nearby);
+      await navigator.clipboard.writeText(relatedWorkPrompt(state, ym, nearby));
       return "";
     }, (text) => (text ? setDraft(text) : setDigestMsg("頼む文面をコピーしました。ChatGPT や Claude などに貼ってください。")));
 
@@ -112,6 +134,26 @@ export function CalendarPage({ state, go }: PageProps) {
           <div className="field" style={{ marginTop: 8 }}>
             <label>下書き(材料はあなたのメモだけです。引用する前に必ず論文で確かめてください)</label>
             <textarea rows={14} readOnly value={draft} onFocus={(e) => e.target.select()} />
+          </div>
+        )}
+        {nearby.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <strong>近いが未読の論文(手元の arXiv 索引から)</strong>
+            <p className="muted">この月に読んだもののタイトルの語で、同じ頃の論文を引いています。「関連研究」の下書きでは「まだ読んでいなさそうな観点」の材料になります。</p>
+            <table>
+              <tbody>
+                {nearby.map((c) => (
+                  <tr key={c.id}>
+                    <td>
+                      <strong>{c.title}</strong>
+                      <div className="muted">{[(c.authors ?? []).slice(0, 3).join(", "), c.year, c.venue].filter(Boolean).join(" · ")}</div>
+                      {c.abstract && <details><summary className="muted">アブストラクト</summary><p className="muted">{c.abstract}</p></details>}
+                    </td>
+                    <td style={{ width: 120, verticalAlign: "top" }}><button className="btn secondary small" onClick={() => queueNearby(c)}>キューに入れる</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

@@ -24,6 +24,9 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = { version = "3", features = ["apple-native"] }
 dirs = "5"
+# arXiv の手元の索引(Parquet → SQLite FTS5)
+parquet = "60"
+arrow = "60"
 
 # トレイはデスクトップだけ(モバイルには無い)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

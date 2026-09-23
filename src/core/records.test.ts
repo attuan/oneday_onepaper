@@ -47,5 +47,10 @@ describe("月のまとめ", () => {
     const req = buildRelatedWorkRequest(papers, memos, "2026-09", "ja");
     expect(req.user).toContain("[1] A(X ほか, 2020)");
     expect(req.user).toContain("[2] B");
+    expect(req.user).not.toContain("近いが未読");
+    const req2 = buildRelatedWorkRequest(papers, memos, "2026-09", "ja", [{ id: "arXiv:2301.00001", title: "N", authors: ["P", "Q", "R"], year: 2023 }]);
+    expect(req2.user).toContain("近いが未読の論文");
+    expect(req2.user).toContain("[A1] N(P ほか, 2023) arXiv:2301.00001");
+    expect(req2.system).toContain("関連研究の本文にはこれらを入れないこと");
   });
 });

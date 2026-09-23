@@ -74,7 +74,12 @@ OneDayOnePaper/
     <paper-id>.pdf      OA で取れたもののみ
   state.sqlite         読了ログ、使用量ログ、キャッシュ
   settings.json
+  arxiv-index.sqlite   arXiv の手元の索引(デスクトップ版で作ったときだけ。4.6)
+  cache/
+    arxiv-metadata.parquet   索引の元データ(1.6 GB。作り直しのために残す)
 ```
+
+`arxiv-index.sqlite` と `cache/` は元データから作り直せるので、書き出し(ZIP)には入れない。
 
 Markdown と JSON は人が読める。SQLite は集計と検索のためのインデックスで、`papers.json` と `memos/` から再構築できるようにする。
 
@@ -182,6 +187,26 @@ CREATE TABLE llm_usage (
   est_cost_usd  REAL NOT NULL
 );
 ```
+
+### 4.6 arXiv の手元の索引(`arxiv-index.sqlite`。デスクトップ版のみ。2026-09-23 追加)
+
+Hugging Face の [secemp9/arxiv-complete](https://huggingface.co/datasets/secemp9/arxiv-complete)(arXiv 全体のスナップショット、
+2026-08-27 まで)の `metadata` config(Parquet 1 ファイル 1.6 GB)を取得し、選んだカテゴリの行だけを SQLite に入れる。
+Parquet の読み込みと FTS5 の構築は Rust(`src-tauri/src/arxiv_index.rs`)、候補への変換と「似た論文」の問い合わせは
+`src/core/scholar/arxivLocal.ts`。境界は `Backend.arxivIndex`(省略可。Web 実装には無く、UI は機能ごと隠す)。
+
+```sql
+CREATE TABLE papers (id TEXT PRIMARY KEY, title, authors, abstract, categories, primary_category, doi, journal_ref, year INTEGER, first_date, latest_date);
+CREATE VIRTUAL TABLE papers_fts USING fts5(title, abstract, content='papers', tokenize='porter unicode61');
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);   -- categories, built_at, source
+```
+
+- 検索は語ごとに引用符で囲んだ FTS5 の MATCH(`all` = AND、`any` = OR)。`bm25(papers_fts, 4.0, 1.0)` でタイトルの一致を重く見る。
+- 「論文を探す」では検索ソース `arxiv_local` として出る(索引があるときだけ)。id はライブの arXiv と同じ `10.48550/arxiv.<id>` にし、
+  重複統合で 1 件にまとまる。被引用数は持たないので `cited_by` は 0。
+- 月のまとめでは、読んだ論文のタイトルの語で同じ頃(±3 年)の論文を `any` で引き、未読で手元に無いものを最大 10 本出す。
+  「関連研究」の下書きでは、これらを本文には入れさせず、「まだ読んでいなさそうな観点」の材料にだけ使わせる(`records.ts`)。
+- 静的なスナップショットなので新着は入らない。新しいものはライブの arXiv API が受け持つ。
 
 ### 4.5 設定(`settings.json`)
 

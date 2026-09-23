@@ -62,8 +62,65 @@ export interface PdfBackend {
   extractText(path: string): Promise<string>;
 }
 
+// ---- arXiv の手元の索引(デスクトップ版だけ。core/scholar/arxivLocal.ts が使う) ----
+
+export interface ArxivIndexProgress {
+  /** download = Parquet の取得、read = Parquet を読んで書き込み、finish = 全文索引の構築 */
+  phase: "download" | "read" | "finish";
+  done: number;
+  total: number;
+  /** 条件に合って索引に入った本数 */
+  kept: number;
+}
+
+export interface ArxivIndexStats {
+  path: string;
+  papers: number;
+  categories: string[];
+  built_at: string;
+  source: string;
+  /** 索引の中で一番新しい版の日付 */
+  snapshot: string | null;
+  bytes: number;
+}
+
+export interface ArxivIndexHit {
+  id: string;
+  title: string;
+  authors: string;
+  abstract: string;
+  categories: string;
+  primary_category: string;
+  doi: string | null;
+  journal_ref: string | null;
+  year: number | null;
+  first_date: string | null;
+}
+
+export interface ArxivIndexQuery {
+  query: string;
+  /** all = 全部の語を含む、any = どれかを含む(似た論文を探すとき) */
+  mode: "all" | "any";
+  categories?: string[];
+  yearFrom?: number | null;
+  yearTo?: number | null;
+  limit?: number;
+}
+
+export interface ArxivIndexBackend {
+  /** 大きなファイルを途中経過つきで保存する */
+  download(url: string, dest: string, onProgress: (p: ArxivIndexProgress) => void): Promise<void>;
+  /** Parquet(metadata config)から dest に索引を作る。categories が空なら全部 */
+  build(parquetPath: string, dest: string, categories: string[], onProgress: (p: ArxivIndexProgress) => void): Promise<ArxivIndexStats>;
+  /** 無ければ null */
+  stats(path: string): Promise<ArxivIndexStats | null>;
+  search(path: string, q: ArxivIndexQuery): Promise<ArxivIndexHit[]>;
+}
+
 export interface Backend {
   readonly name: "tauri" | "web";
+  /** 無い実装(Web)では undefined。UI はこれで機能ごと隠す */
+  readonly arxivIndex?: ArxivIndexBackend;
   readonly fs: FsBackend;
   readonly db: DbBackend;
   readonly secret: SecretBackend;
@@ -136,6 +193,11 @@ export const pdf: PdfBackend = {
   download: (url, dest) => getBackend().pdf.download(url, dest),
   extractText: (path) => getBackend().pdf.extractText(path),
 };
+
+/** arXiv の手元の索引。この実装に無ければ null */
+export function arxivIndexBackend(): ArxivIndexBackend | null {
+  return getBackend().arxivIndex ?? null;
+}
 
 export function saveFile(fileName: string, data: Uint8Array): Promise<string> {
   return getBackend().saveFile(fileName, data);
