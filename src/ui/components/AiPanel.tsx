@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PageProps } from "../App";
 import { apiUsable, estimateAiCost, extractFulltext, hasPdf, loadAiOutputs, platform, runAi, saveHandoffResult, updateSettings } from "@/core/app";
 import type { AiVia, GradeOutput, Memo, Paper, SummaryField, SummaryOutput } from "@/core/types";
@@ -21,7 +21,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
   const [grade, setGrade] = useState<GradeOutput | null>(null);
   const [pending] = useState(() => loadPending(paper.id));
   const [inputKind, setInputKind] = useState<PaperContext["inputKind"]>(pending?.inputKind ?? (paper.kind === "article" && !paper.abstract ? "pasted" : "abstract"));
-  const [pasted, setPasted] = useState("");
+  const [pasted, setPasted] = useState(pending?.pasted ?? "");
   const [fulltext, setFulltext] = useState<{ text: string; tokens: number } | null>(null);
   const [pdfAvailable, setPdfAvailable] = useState(false);
   const [running, setRunning] = useState(false);
@@ -33,6 +33,9 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
   const [handedOff, setHandedOff] = useState(!!pending);
   const [answer, setAnswer] = useState("");
   const [note, setNote] = useState<string | null>(pending ? "戻ってきました。「2. 結果を貼り付ける」を押してください。" : null);
+  /** 「うまくいかないとき」を開いておくか */
+  const [manualOpen, setManualOpen] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadAiOutputs(paper.id).then((o) => {
@@ -97,16 +100,17 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
     }
   };
 
+  const prompt = buildHandoffPrompt(ctx, memo.body, state.settings.language);
+
   /** プロンプトをクリップボードに置く。ショートカットならそのまま起動する */
   const handOff = async () => {
     setErr(null);
-    try {
-      await navigator.clipboard.writeText(buildHandoffPrompt(ctx, memo.body, state.settings.language));
-    } catch {
-      setErr("クリップボードに書き込めませんでした。下の「プロンプトを表示」から手でコピーしてください");
+    if (!(await copyText(prompt, promptRef.current))) {
+      setManualOpen(true);
+      setErr("クリップボードに書き込めませんでした。下の「プロンプト」欄を長押し(右クリック)して全選択し、手でコピーしてください");
       return;
     }
-    savePending({ paperId: paper.id, inputKind });
+    savePending({ paperId: paper.id, inputKind, pasted: inputKind === "pasted" ? pasted : undefined });
     setHandedOff(true);
     if (via === "shortcut") {
       setNote("ショートカットを開きます。終わるとこのページに戻ります。");
@@ -116,7 +120,8 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
     }
   };
 
-  const accept = async (raw: string) => {
+  /** 読めたら true */
+  const accept = async (raw: string): Promise<boolean> => {
     setRunning(true);
     setErr(null);
     try {
@@ -128,18 +133,28 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
       setGrade(r.grade);
       setNote(null);
       setAnswer("");
+      return true;
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setRunning(false);
     }
   };
 
   const pasteAnswer = async () => {
+    let raw: string;
     try {
-      await accept(await navigator.clipboard.readText());
+      raw = await navigator.clipboard.readText();
     } catch {
-      setErr("クリップボードを読めませんでした。下の欄に貼り付けて「読み込む」を押してください");
+      setManualOpen(true);
+      setErr("クリップボードを読めませんでした。下の「AI の回答」欄に貼り付けて「読み込む」を押してください");
+      return;
+    }
+    // 読めなかったときは、何を読んだかが見えるように欄に入れておく。そこで直して読み込み直せる
+    if (!(await accept(raw))) {
+      setAnswer(raw);
+      setManualOpen(true);
     }
   };
 
@@ -168,6 +183,7 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
           {inputKind === "pasted" && (
             <div className="field">
               <textarea rows={6} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="論文本文をここに貼り付け" />
+              {handedOff && <p className="muted">プロンプトをコピーした後に本文を変えたときは、「1. プロンプトをコピー」からやり直してください。</p>}
             </div>
           )}
           {extracting && <p className="muted">PDF から本文を抽出中…</p>}
@@ -190,11 +206,13 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
               </div>
               {note && <p className="muted">{note}</p>}
               {via === "shortcut" && !handedOff && <p className="muted">初回は設定画面の手順でショートカット「{state.settings.llm.shortcut_name}」を作ってください。</p>}
-              <details>
+              <details open={manualOpen} onToggle={(e) => setManualOpen(e.currentTarget.open)}>
                 <summary className="muted">うまくいかないとき(手でコピー・貼り付け)</summary>
                 <div className="field">
                   <label>プロンプト</label>
-                  <textarea rows={4} readOnly value={buildHandoffPrompt(ctx, memo.body, state.settings.language)} onFocus={(e) => e.target.select()} />
+                  {/* onFocus で select() すると、直後のマウスアップで選択が外れる。クリックのたびに全体を選ぶ */}
+                  <textarea ref={promptRef} rows={4} readOnly value={prompt} onClick={(e) => e.currentTarget.setSelectionRange(0, prompt.length)} />
+                  <button className="btn secondary small" onClick={async () => setNote((await copyText(prompt, promptRef.current)) ? "プロンプトをコピーしました。" : "コピーできませんでした。欄を長押しして全選択し、コピーしてください。")}>プロンプトをコピー</button>
                 </div>
                 <div className="field">
                   <label>AI の回答</label>
@@ -246,6 +264,23 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
       {summary && <button className="btn secondary small" onClick={() => { setSummary(null); setGrade(null); }}>やり直す</button>}
     </div>
   );
+}
+
+/** クリップボードに書く。navigator.clipboard が使えない環境(古い WebView など)では、欄を選択して execCommand で写す */
+async function copyText(text: string, el: HTMLTextAreaElement | null): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    if (!el || !el.isConnected) return false;
+    el.focus();
+    el.setSelectionRange(0, text.length);
+    try {
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    }
+  }
 }
 
 function FeedbackList({ title, items }: { title: string; items?: string[] }) {

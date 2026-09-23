@@ -34,6 +34,10 @@ describe("parseHandoffResult", () => {
     expect(() => parseHandoffResult('{"foo":1}', "")).toThrow(/要約が見つかりません/);
     expect(() => parseHandoffResult("ただの文章", "")).toThrow();
     expect(() => parseHandoffResult(" ", "")).toThrow(/空/);
+    const prompt = buildHandoffPrompt({ paper, text: "x", inputKind: "abstract" }, "m", "ja");
+    expect(() => parseHandoffResult(prompt, "")).toThrow(/プロンプトのまま/);
+    expect(() => parseHandoffResult('{"summary": {"problem": "p"', "")).toThrow(/途中で切れて/);
+    expect(() => parseHandoffResult("[1]", "")).toThrow(/要約が見つかりません/);
   });
 });
 

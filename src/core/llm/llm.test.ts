@@ -11,6 +11,20 @@ describe("parseJsonLoose", () => {
     expect(parseJsonLoose('```json\n{"a":1}\n```')).toEqual({ a: 1 });
     expect(parseJsonLoose('結果: {"a":1} 以上')).toEqual({ a: 1 });
   });
+  it("画面から手でコピーしたもの", () => {
+    // NBSP・ゼロ幅文字・末尾カンマ
+    expect(parseJsonLoose('{\u00a0"a":\u00a01,\u200b "b": [1, 2,],}')).toEqual({ a: 1, b: [1, 2] });
+    // カーブした引用符。中身の " は残す
+    expect(parseJsonLoose('{“a”: “x \"y\" z”}')).toEqual({ a: 'x "y" z' });
+    // 文字列の中の生の改行
+    expect(parseJsonLoose('{"a": "1 行目\n2 行目"}')).toEqual({ a: "1 行目\n2 行目" });
+    // 後ろの文章に } があっても、対になる括弧で切る
+    expect(parseJsonLoose('はい。{"a": "}"} 補足: {注} です')).toEqual({ a: "}" });
+  });
+  it("途中で切れているときはそう言う", () => {
+    expect(() => parseJsonLoose('{"a": {"b": 1')).toThrow(/途中で切れて/);
+    expect(() => parseJsonLoose("ただの文章")).toThrow(/解釈できません/);
+  });
 });
 
 describe("cost", () => {

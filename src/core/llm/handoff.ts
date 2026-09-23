@@ -10,12 +10,15 @@ import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, normalizeGrad
 /** 戻り先の URL に付けるパラメータ。値は論文 ID */
 export const RETURN_PARAM = "ai_return";
 
+/** プロンプトの書き出し。貼り戻されたものがプロンプトのままかを見分けるのにも使う */
+const PROMPT_HEAD = "論文の情報と、それを読んだ人のメモを渡します。次の 2 つをしてください。";
+
 /** 要約と採点を 1 往復で済ませるプロンプト。行き先はスキーマ指定ができないので、形は文面で伝える */
 export function buildHandoffPrompt(ctx: PaperContext, memoBody: string, language: string): string {
   const lang = language === "en" ? "English" : "日本語";
   const kind = ctx.inputKind === "abstract" ? "アブストラクト" : ctx.inputKind === "fulltext" ? "本文" : "ユーザー提供テキスト";
   return [
-    "論文の情報と、それを読んだ人のメモを渡します。次の 2 つをしてください。",
+    PROMPT_HEAD,
     "1. summary: 論文を事実に基づいて要約する。各項目 2〜4 文。情報が足りない項目は推測せず「不明」と書く。",
     `2. grade: ${GRADE_RULES}`,
     `出力は${lang}で、下の形の JSON だけを返してください。前置き・説明・コードフェンスは不要です。`,
@@ -54,7 +57,24 @@ const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "不
 /** sourceText は頼んだときに渡した論文情報。根拠の引用が本当にそこにあるかを確かめるのに使う */
 export function parseHandoffResult(text: string, sourceText: string): HandoffResult {
   if (!text.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
-  const raw = parseJsonLoose<Record<string, unknown>>(text);
+  if (text.trim().startsWith(PROMPT_HEAD)) {
+    throw new LlmError("貼り付けたのはこちらのプロンプトのままです。AI の回答をコピーしてから、もう一度押してください", "bad_output");
+  }
+  let raw: Record<string, unknown>;
+  try {
+    raw = parseJsonLoose<Record<string, unknown>>(text);
+  } catch (e) {
+    const cut = e instanceof Error && e.message.includes("途中で切れて");
+    throw new LlmError(
+      cut
+        ? "AI の回答が途中で切れているようです。AI に「続けて」と頼むか、渡す論文情報を短くして頼み直してください"
+        : "AI の回答を JSON として読めませんでした。回答の最初の { から最後の } までをまるごとコピーしてください",
+      "bad_output",
+    );
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new LlmError("要約が見つかりません。AI の回答の JSON 全体をコピーしてください", "bad_output");
+  }
   // summary を包まずに 4 項目を直に返すモデルもある
   const s = (raw.summary && typeof raw.summary === "object" ? raw.summary : raw) as Record<string, unknown>;
   if (!["problem", "method", "results", "limitations"].some((k) => typeof s[k] === "string")) {

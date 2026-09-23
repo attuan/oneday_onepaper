@@ -8,6 +8,8 @@ const KEY = "ai_handoff_pending";
 export interface HandoffPending {
   paperId: string;
   inputKind: PaperContext["inputKind"];
+  /** 「本文を貼り付ける」で入れた本文。ページが読み込み直されても、根拠の照合に同じ本文を使えるように */
+  pasted?: string;
 }
 
 export function loadPending(paperId: string): HandoffPending | null {
