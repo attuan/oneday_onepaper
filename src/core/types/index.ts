@@ -86,7 +86,7 @@ export type LlmProviderName = "anthropic" | "ollama" | "openai";
 export type AiVia = "auto" | "api" | "shortcut" | "paste";
 /** 論文検索のソース。一覧と説明は core/scholar/sources.ts */
 export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "arxiv_local" | "pubmed" | "cinii" | "jstage";
-export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "digest";
+export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "digest" | "proposal";
 
 export interface LlmUsageRow {
   at: string;
@@ -223,4 +223,89 @@ export interface GradeOutput {
   misreadings?: string[];
   /** 次に読む・書くときの一歩(1 文) */
   next_step?: string;
+}
+
+// ---- 研究計画書(仕様 13) ----
+
+/** 節を読んだ AI の返事。本文は書き直させない。key は論文リストの引用キー、sentence は節の本文にそのままある文だけ残す */
+export interface ProposalFeedback {
+  good_points: string[];
+  /** この節の役割に照らして足りないもの */
+  missing_points: string[];
+  /** 指導教員や審査する人が聞きそうなこと */
+  questions: string[];
+  /** 根拠(引用)が要りそうな文と、手元で引けそうな論文 */
+  needs_citation: { sentence: string; keys: string[] }[];
+  /** この節で引けそうな手元の論文 */
+  suggested: { key: string; reason: string }[];
+  next_step: string;
+  created_at: string;
+  /** 見てもらったときの本文。そのあと書き直したかを見分ける */
+  body_seen: string;
+}
+
+export interface ProposalSection {
+  id: string;
+  heading: string;
+  /** この節に書くこと。入力欄の案内と、AI に「この節の役割」として渡すのに使う */
+  hint: string;
+  /** 平文。空行で段落、行頭の「- 」で箇条書き、**太字**、[@引用キー] で引用 */
+  body: string;
+  /** 字数の上限(空白を除き、引用は [n] として数える)。無ければ null */
+  limit: number | null;
+  feedback?: ProposalFeedback | null;
+}
+
+export interface ScheduleRow {
+  id: string;
+  label: string;
+  /** YYYY-MM */
+  start: string;
+  end: string;
+}
+
+/** 図はどれも任意。enabled のときだけ書き出す。after_section の節の後ろに置く(無ければ参考文献の前) */
+export interface ScheduleFigure {
+  enabled: boolean;
+  caption: string;
+  after_section: string | null;
+  rows: ScheduleRow[];
+}
+
+export interface MapPoint {
+  id: string;
+  /** null は「本研究」 */
+  paper_id: string | null;
+  label: string;
+  /** 0〜1。x は左→右、y は下→上 */
+  x: number;
+  y: number;
+}
+
+/** 先行研究マップ。軸はユーザーが決める(軸を選ぶこと自体が、自分の研究の新しさを考えることなので) */
+export interface MapFigure {
+  enabled: boolean;
+  caption: string;
+  after_section: string | null;
+  x_axis: { low: string; high: string };
+  y_axis: { low: string; high: string };
+  points: MapPoint[];
+}
+
+export interface Proposal {
+  version: 1;
+  id: string;
+  title: string;
+  author: string;
+  affiliation: string;
+  /** 何のための計画書か(提出先・分量など)。AI に渡す */
+  purpose: string;
+  /** 作ったときのひな形 */
+  template: string;
+  sections: ProposalSection[];
+  references_heading: string;
+  schedule: ScheduleFigure;
+  map: MapFigure;
+  created_at: string;
+  updated_at: string;
 }

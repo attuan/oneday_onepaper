@@ -16,6 +16,7 @@ function seed(b: MemoryBackend, tag: string) {
   put("state.sqlite", sqlite(1));
   put(`memos/2026-09-01_${tag}.md`, `# ${tag} 1`);
   put(`memos/2026-09-02_${tag}.md`, `# ${tag} 2`);
+  put(`proposals/${tag}.json`, JSON.stringify({ id: tag }));
   put(`pdfs/${tag}.pdf`, `%PDF-${tag}`);
   put("backups/old.zip", "old");
 }
@@ -89,10 +90,11 @@ describe("exportArchive", () => {
       "OneDayOnePaper/memos/2026-09-01_a.md",
       "OneDayOnePaper/memos/2026-09-02_a.md",
       "OneDayOnePaper/papers.json",
+      "OneDayOnePaper/proposals/a.json",
       "OneDayOnePaper/settings.json",
       "OneDayOnePaper/state.sqlite",
     ]);
-    expect(r.counts).toEqual({ papers: true, memos: 2, pdfs: 0, db: true, settings: true });
+    expect(r.counts).toEqual({ papers: true, memos: 2, proposals: 1, pdfs: 0, db: true, settings: true });
     expect(b.log[0]).toBe("db.flush");
   });
   it("includePdfs で PDF も入れる", async () => {
@@ -123,6 +125,15 @@ describe("importArchive", () => {
       if (k.startsWith(`${DIR}/backups/`)) continue;
       expect(snapshot(other).get(k), k).toEqual(v);
     }
+  });
+
+  it("研究計画書は ZIP に入っていれば置き換え、無ければ残す", async () => {
+    seed(b, "old");
+    await importArchive(DIR, zipOf({ "papers.json": papersJson(1) }), NOW);
+    expect(await b.fs.listDir(`${DIR}/proposals`)).toEqual(["old.json"]);
+    const r = await importArchive(DIR, zipOf({ "papers.json": papersJson(1), "proposals/new.json": "{}" }), NOW);
+    expect(r.proposals).toBe(1);
+    expect(await b.fs.listDir(`${DIR}/proposals`)).toEqual(["new.json"]);
   });
 
   it("memos は置き換え、PDF と設定は ZIP に無ければ残し、state.sqlite は ZIP に無ければ消す", async () => {

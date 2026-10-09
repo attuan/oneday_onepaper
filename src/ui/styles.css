@@ -121,6 +121,29 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .pomodoro.break { background: #f4f6fa; }
 .pomodoro .title.mono { font-variant-numeric: tabular-nums; font-size: 28px; margin: 2px 0; }
 
+/* 研究計画書(仕様 13) */
+.proposal { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.proposal .side { position: sticky; top: 0; max-height: calc(100vh - 56px); overflow: auto; }
+.proposal-title { font-size: 17px; font-weight: 600; }
+.section-heading { flex: 1; font: inherit; font-size: 16px; font-weight: 600; color: var(--blue-dark); border: 0; border-bottom: 1px dashed var(--border); padding: 4px 0; min-width: 0; }
+.section-heading:focus { outline: none; border-bottom-color: var(--blue); }
+.section-body { width: 100%; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; line-height: 1.7; font-size: 14px; }
+.section-body:focus { outline: 2px solid var(--blue-mid); }
+.section-settings summary { cursor: pointer; }
+.cites { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; font-size: 12px; }
+.cite-picker { border: 1px solid var(--blue-mid); border-radius: 6px; padding: 10px; margin-top: 8px; background: var(--blue-light); }
+.cite-picker input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+.cite-picker ul { list-style: none; padding: 0; margin: 8px 0; max-height: 260px; overflow: auto; }
+.coach { margin-top: 10px; }
+.feedback { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; font-size: 14px; }
+.feedback ul { margin: 4px 0 10px; padding-left: 20px; }
+.need-cite { margin-bottom: 8px; }
+.seed { border-top: 1px solid var(--border); padding: 8px 0; font-size: 13px; line-height: 1.5; }
+.figure-preview { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.figure-preview svg { display: block; width: 100%; height: auto; }
+.map-preview { touch-action: none; cursor: grab; user-select: none; }
+tr.selected td { background: var(--blue-light); }
+
 /* 狭い画面(モバイル、v2)。ナビを上のバーにして、2 列のものを 1 列にする */
 @media (max-width: 720px) {
   .app { flex-direction: column; height: auto; min-height: 100dvh; }
@@ -141,6 +164,8 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
   .calendar .day { min-height: 56px; padding: 4px; font-size: 11px; }
   .calendar .day .t { -webkit-line-clamp: 1; }
   .lessons { grid-template-columns: 1fr; }
+  .proposal { grid-template-columns: minmax(0, 1fr); }
+  .proposal .side { position: static; max-height: none; }
   .lessons-nav { flex-direction: row; overflow-x: auto; gap: 6px; }
   .lessons-nav button { white-space: nowrap; border: 1px solid var(--border); }
   table { display: block; overflow-x: auto; }

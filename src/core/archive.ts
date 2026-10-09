@@ -1,7 +1,7 @@
 // データのエクスポート/インポート。
 //
 // ZIP の中身はデータフォルダ(仕様 4.1)と同じ並びにする:
-//   OneDayOnePaper/papers.json, settings.json, state.sqlite, memos/*.md, pdfs/*.pdf
+//   OneDayOnePaper/papers.json, settings.json, state.sqlite, memos/*.md, proposals/*.json, pdfs/*.pdf
 // だからデスクトップ版のフォルダを手で圧縮したものもそのまま取り込めるし、
 // ブラウザ版から書き出したものを解凍すればデスクトップ版のフォルダになる。
 // API キーは含めない。
@@ -16,7 +16,7 @@ const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 const SQLITE_MAGIC = "SQLite format 3";
 const EMPTY_PAPERS = '{\n  "version": 1,\n  "papers": []\n}';
 
-export type EntryKind = "papers" | "settings" | "db" | "memo" | "pdf";
+export type EntryKind = "papers" | "settings" | "db" | "memo" | "proposal" | "pdf";
 
 const TOP_FILES = new Map<string, EntryKind>([
   ["papers.json", "papers"],
@@ -37,9 +37,10 @@ function safeName(name: string): boolean {
 export function classify(rel: string): EntryKind | null {
   const top = TOP_FILES.get(rel);
   if (top) return top;
-  const m = /^(memos|pdfs)\/([^/]+)$/.exec(rel);
+  const m = /^(memos|proposals|pdfs)\/([^/]+)$/.exec(rel);
   if (!m || !safeName(m[2])) return null;
   if (m[1] === "memos" && m[2].endsWith(".md")) return "memo";
+  if (m[1] === "proposals" && m[2].endsWith(".json")) return "proposal";
   if (m[1] === "pdfs" && m[2].endsWith(".pdf")) return "pdf";
   return null;
 }
@@ -55,7 +56,7 @@ export function commonRoot(names: string[]): string {
   if (firsts.size !== 1) return "";
   const [only] = firsts;
   // memos/ だけの ZIP を「memos フォルダの圧縮」と取り違えない
-  if (only === "memos/" || only === "pdfs/") return "";
+  if (only === "memos/" || only === "proposals/" || only === "pdfs/") return "";
   return only;
 }
 
@@ -131,7 +132,7 @@ const stamp = (d: Date) => `${ymd(d)}_${pad(d.getHours())}${pad(d.getMinutes())}
 export interface ExportResult {
   fileName: string;
   data: Uint8Array;
-  counts: { papers: boolean; memos: number; pdfs: number; db: boolean; settings: boolean };
+  counts: { papers: boolean; memos: number; proposals: number; pdfs: number; db: boolean; settings: boolean };
 }
 
 async function listByExt(dir: string, ext: string): Promise<string[]> {
@@ -160,6 +161,12 @@ export async function exportArchive(dataDir: string, opts: { includePdfs: boolea
     if (b) add(`memos/${n}`, b);
   }
 
+  const proposals = await listByExt(joinPath(dataDir, "proposals"), ".json");
+  for (const n of proposals) {
+    const b = await fs.readBinary(joinPath(dataDir, "proposals", n));
+    if (b) add(`proposals/${n}`, b);
+  }
+
   let pdfCount = 0;
   if (opts.includePdfs) {
     for (const n of await listByExt(joinPath(dataDir, "pdfs"), ".pdf")) {
@@ -173,7 +180,7 @@ export async function exportArchive(dataDir: string, opts: { includePdfs: boolea
   return {
     fileName: `${ARCHIVE_ROOT}-${ymd(now)}.zip`,
     data: zipSync(files),
-    counts: { papers: !!papers, memos: memos.length, pdfs: pdfCount, db: !!sqlite, settings: !!settings },
+    counts: { papers: !!papers, memos: memos.length, proposals: proposals.length, pdfs: pdfCount, db: !!sqlite, settings: !!settings },
   };
 }
 
@@ -182,6 +189,7 @@ export async function exportArchive(dataDir: string, opts: { includePdfs: boolea
 export interface ImportReport {
   papers: number;
   memos: number;
+  proposals: number;
   pdfs: number;
   db: boolean;
   settings: boolean;
@@ -210,7 +218,7 @@ async function removeIfExists(path: string): Promise<void> {
  * 現在のデータを ZIP の中身で置き換える。
  * - memos/ は置き換える。papers.json は必須
  * - state.sqlite は ZIP に無ければ消す(メモから作り直される)
- * - settings.json と pdfs/ は ZIP に入っているときだけ置き換える
+ * - settings.json・proposals/・pdfs/ は ZIP に入っているときだけ置き換える(研究計画書を入れる前の ZIP で消さないため)
  * 書き換える前に、今のデータを backups/ に書き出しておく。
  * 呼んだ後は DB が閉じているので、画面を読み込み直すこと。
  */
@@ -267,6 +275,11 @@ export async function importArchive(dataDir: string, zip: Uint8Array, now = new 
     }
     const memosDir = joinPath(dataDir, "memos");
     for (const n of await listByExt(memosDir, ".md")) await fs.removeFile(joinPath(memosDir, n));
+    if (has("proposal")) {
+      const dir = joinPath(dataDir, "proposals");
+      for (const n of await listByExt(dir, ".json")) await fs.removeFile(joinPath(dir, n));
+      await fs.mkdirAll(dir);
+    }
     if (has("pdf")) {
       const pdfsDir = joinPath(dataDir, "pdfs");
       for (const n of await listByExt(pdfsDir, ".pdf")) await fs.removeFile(joinPath(pdfsDir, n));
@@ -283,6 +296,7 @@ export async function importArchive(dataDir: string, zip: Uint8Array, now = new 
   return {
     papers: paperCount,
     memos: entries.filter((e) => e.kind === "memo").length,
+    proposals: entries.filter((e) => e.kind === "proposal").length,
     pdfs: entries.filter((e) => e.kind === "pdf").length,
     db: has("db"),
     settings: has("settings"),

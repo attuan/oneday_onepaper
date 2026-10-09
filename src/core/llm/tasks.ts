@@ -50,7 +50,7 @@ export const EVIDENCE_RULES =
 const SUMMARY_FIELDS: SummaryField[] = ["problem", "method", "results", "limitations"];
 
 /** 照合用に、空白・改行・引用符の違いをならす。PDF から抜いた本文は改行の位置がばらばらなため */
-function squash(text: string): string {
+export function squash(text: string): string {
   return text.toLowerCase().replace(/[“”„‟]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, "");
 }
 

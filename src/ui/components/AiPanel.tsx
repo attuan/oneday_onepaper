@@ -6,6 +6,7 @@ import { buildHandoffPrompt, handoffReturnUrl, shortcutRunUrl } from "@/core/llm
 import type { PaperContext } from "@/core/llm/tasks";
 import { formatUsd } from "@/core/usage/cost";
 import { clearPending, loadPending, savePending } from "../handoffPending";
+import { copyText } from "../clipboard";
 
 type Via = Exclude<AiVia, "auto">;
 
@@ -264,23 +265,6 @@ export function AiPanel({ state, setState, memo, paper }: { state: PageProps["st
       {summary && <button className="btn secondary small" onClick={() => { setSummary(null); setGrade(null); }}>やり直す</button>}
     </div>
   );
-}
-
-/** クリップボードに書く。navigator.clipboard が使えない環境(古い WebView など)では、欄を選択して execCommand で写す */
-async function copyText(text: string, el: HTMLTextAreaElement | null): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    if (!el || !el.isConnected) return false;
-    el.focus();
-    el.setSelectionRange(0, text.length);
-    try {
-      return document.execCommand("copy");
-    } catch {
-      return false;
-    }
-  }
 }
 
 function FeedbackList({ title, items }: { title: string; items?: string[] }) {

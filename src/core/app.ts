@@ -15,7 +15,7 @@ import { AnthropicProvider } from "@/core/llm/anthropic";
 import { OllamaProvider } from "@/core/llm/ollama";
 import { OpenAiCompatProvider } from "@/core/llm/openaiCompat";
 import { parseHandoffResult } from "@/core/llm/handoff";
-import type { LlmProvider } from "@/core/llm/provider";
+import { parseJsonLoose, type LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
 import { appFetch, arxivIndexBackend, backendName, fs, joinPath, pdf, saveFile, secret, type ArxivIndexProgress, type ArxivIndexStats } from "@/core/store/backend";
@@ -30,6 +30,13 @@ import { extractIdentifiers, lookupDoi } from "@/core/scholar/openalex";
 import { DEFAULT_SOURCES, dedupe, interleave, searchSource, sourceInfo } from "@/core/scholar/sources";
 import { ARXIV_METADATA_URL, arxivIdOf, arxivIndexPath, arxivParquetPath, similarInIndex } from "@/core/scholar/arxivLocal";
 import type { Candidate } from "@/core/scholar/types";
+import type { Proposal, ProposalFeedback } from "@/core/types";
+import { newProposal, papersByKey } from "@/core/proposal/model";
+import { buildCoachPrompt, buildCoachRequest, normalizeCoach, parseCoachAnswer, MIN_COACH_CHARS } from "@/core/proposal/coach";
+import { buildDocx, type ProposalImages } from "@/core/proposal/docx";
+import { buildLatexZip } from "@/core/proposal/latex";
+import { safeFileName, sectionChars } from "@/core/proposal/model";
+import * as proposalStore from "@/core/store/proposals";
 
 export interface AppState {
   settings: Settings;
@@ -686,4 +693,69 @@ export const usageByMonthAndTask = sql.usageByMonthAndTask;
 
 export async function calendarLogs(from: string, to: string): Promise<DayLog[]> {
   return sql.dayLogsBetween(from, to);
+}
+
+// ---- 研究計画書(仕様 13) ----
+
+export async function listProposals(state: AppState): Promise<Proposal[]> {
+  return proposalStore.listProposals(state.settings.data_dir);
+}
+
+export async function createProposal(state: AppState, templateId: string, input: { title?: string; purpose?: string }): Promise<Proposal> {
+  const p = newProposal(templateId, input, new Date());
+  await proposalStore.saveProposal(state.settings.data_dir, p);
+  return p;
+}
+
+export async function saveProposal(state: AppState, p: Proposal): Promise<Proposal> {
+  const next = { ...p, updated_at: new Date().toISOString() };
+  await proposalStore.saveProposal(state.settings.data_dir, next);
+  return next;
+}
+
+export async function deleteProposal(state: AppState, id: string): Promise<void> {
+  await proposalStore.deleteProposal(state.settings.data_dir, id);
+}
+
+function coachReady(p: Proposal, sectionId: string): string {
+  const s = p.sections.find((x) => x.id === sectionId);
+  if (!s) throw new Error("節が見つかりません");
+  if (sectionChars(s.body) < MIN_COACH_CHARS) throw new Error(`まず自分で ${MIN_COACH_CHARS} 字以上書いてください。AI は書いたものを読んでコメントします(代わりには書きません)`);
+  return s.body;
+}
+
+/** 節を API で見てもらう。返事は節に付けて返す(保存は呼び出し側) */
+export async function coachSection(state: AppState, p: Proposal, sectionId: string): Promise<ProposalFeedback> {
+  const body = coachReady(p, sectionId);
+  const llm = await makeProvider(state.settings);
+  const res = await llm.complete(buildCoachRequest(p, sectionId, state.papers, state.memos, state.settings.language));
+  await recordUsage(state.settings, "proposal", res);
+  return normalizeCoach(parseJsonLoose(res.text), new Set(papersByKey(state.papers).keys()), body);
+}
+
+export function coachCostUsd(state: AppState, p: Proposal, sectionId: string): number {
+  const r = buildCoachRequest(p, sectionId, state.papers, state.memos, state.settings.language);
+  return estimateCostUsd(state.settings.llm.provider, state.settings.llm.model, roughTokenCount(r.system + r.user), 900);
+}
+
+/** API が無いときに、好きな AI に貼る文面 */
+export function coachPrompt(state: AppState, p: Proposal, sectionId: string): string {
+  coachReady(p, sectionId);
+  return buildCoachPrompt(p, sectionId, state.papers, state.memos, state.settings.language);
+}
+
+export function acceptCoachAnswer(state: AppState, p: Proposal, sectionId: string, text: string): ProposalFeedback {
+  return parseCoachAnswer(text, new Set(papersByKey(state.papers).keys()), coachReady(p, sectionId));
+}
+
+/** Word(.docx)で書き出す。どこに置いたかを文で返す */
+export async function exportProposalDocx(state: AppState, p: Proposal, images: ProposalImages): Promise<string> {
+  const data = buildDocx(p, papersByKey(state.papers), images);
+  return saveFile(`${safeFileName(p.title, "研究計画書")}.docx`, data);
+}
+
+/** LaTeX(main.tex・refs.bib・図)を ZIP で書き出す */
+export async function exportProposalLatex(state: AppState, p: Proposal, images: ProposalImages): Promise<string> {
+  const data = buildLatexZip(p, papersByKey(state.papers), images);
+  return saveFile(`${safeFileName(p.title, "研究計画書")}-latex.zip`, data);
 }
