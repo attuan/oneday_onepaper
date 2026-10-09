@@ -10,6 +10,7 @@ import { formatUsd } from "@/core/usage/cost";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { copyText } from "../clipboard";
 import { ProposalExport, ProposalFigures } from "../components/ProposalFigures";
+import { ProposalExplore } from "../components/ProposalExplore";
 
 type Via = "api" | "paste";
 
@@ -43,10 +44,12 @@ function ProposalList({ state, go, list, onOpen, onDeleted }: PageProps & { list
   const [template, setTemplate] = useState(PROPOSAL_TEMPLATES[0].id);
   const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [creating, setCreating] = useState(list.length === 0);
+  const [creating, setCreating] = useState(false);
   const papers = state.papers.filter((p) => p.status !== "removed").length;
 
+  const [curiosity, setCuriosity] = useState("");
   const create = async () => onOpen(await createProposal(state, template, { title, purpose }));
+  const start = async () => onOpen(await createProposal(state, "thesis", { curiosity }));
 
   return (
     <>
@@ -60,6 +63,12 @@ function ProposalList({ state, go, list, onOpen, onDeleted }: PageProps & { list
           論文リストが空なので、引用や「引ける論文」は出ません。先に <button className="link" onClick={() => go({ name: "explore" })}>論文を探す</button> で集めておくと役に立ちます
         </p>
       )}
+      <div className="card hero">
+        <strong>まだ論文を読んでいない人は、気になることから</strong>
+        <p className="muted">気になることを普段の言葉で書くと、検索語 → 論文の候補(理由つき)→ 問いの候補、と順に進めます。問いが決まったら、そのまま計画書を書き始められます。</p>
+        <textarea rows={2} value={curiosity} onChange={(e) => setCuriosity(e.target.value)} placeholder="例: SNS でデマが広がるのはなぜなのか気になる" style={{ width: "100%" }} />
+        <button className="btn" style={{ marginTop: 8 }} disabled={!curiosity.trim()} onClick={start}>気になることから始める</button>
+      </div>
       {list.map((p) => (
         <div className="card" key={p.id}>
           <div className="row" style={{ justifyContent: "space-between" }}>
@@ -77,10 +86,10 @@ function ProposalList({ state, go, list, onOpen, onDeleted }: PageProps & { list
         </div>
       ))}
       {!creating ? (
-        <button className="btn secondary" onClick={() => setCreating(true)}>新しく作る</button>
+        <button className="btn secondary" onClick={() => setCreating(true)}>ひな形から作る(書くことが決まっている人)</button>
       ) : (
         <div className="card">
-          <h2 style={{ marginTop: 0 }}>新しく作る</h2>
+          <h2 style={{ marginTop: 0 }}>ひな形から作る</h2>
           <div className="field">
             <label>ひな形(節の名前・数・字数はあとから変えられます)</label>
             <div className="row pick">
@@ -102,7 +111,7 @@ function ProposalList({ state, go, list, onOpen, onDeleted }: PageProps & { list
           </div>
           <div className="row">
             <button className="btn" onClick={create}>作る</button>
-            {list.length > 0 && <button className="btn secondary" onClick={() => setCreating(false)}>やめる</button>}
+            <button className="btn secondary" onClick={() => setCreating(false)}>やめる</button>
           </div>
         </div>
       )}
@@ -110,7 +119,7 @@ function ProposalList({ state, go, list, onOpen, onDeleted }: PageProps & { list
   );
 }
 
-function ProposalEditor({ state, go, initial, onBack }: PageProps & { initial: Proposal; onBack: () => void }) {
+function ProposalEditor({ state, setState, go, initial, onBack }: PageProps & { initial: Proposal; onBack: () => void }) {
   const [p, setP] = useState(initial);
   const [saved, setSaved] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [via, setVia] = useState<Via>("paste");
@@ -168,6 +177,8 @@ function ProposalEditor({ state, go, initial, onBack }: PageProps & { initial: P
     });
 
   const questions = useMemo(() => memoQuestions(state.papers, state.memos), [state.papers, state.memos]);
+  // まだ何も書いていない計画書では開いておく
+  const [exploreOpen, setExploreOpen] = useState(() => !initial.exploration.my_question.trim() && initial.sections.every((s) => !s.body.trim()));
 
   return (
     <>
@@ -186,6 +197,13 @@ function ProposalEditor({ state, go, initial, onBack }: PageProps & { initial: P
       </div>
       <div className="proposal">
         <div>
+          <details className="explore-wrap" open={exploreOpen} onToggle={(e) => setExploreOpen(e.currentTarget.open)}>
+            <summary>
+              <strong>はじめの一歩: 気になることから問いを立てる</strong>
+              {p.exploration.my_question.trim() && <span className="muted"> ・ 問い: {p.exploration.my_question.trim().slice(0, 60)}</span>}
+            </summary>
+            <ProposalExplore state={state} setState={setState} proposal={p} update={update} via={via} />
+          </details>
           <div className="card">
             <div className="field">
               <label>研究題目</label>
@@ -231,6 +249,13 @@ function ProposalEditor({ state, go, initial, onBack }: PageProps & { initial: P
         </div>
 
         <aside className="side">
+          {(p.exploration.my_question.trim() || p.exploration.chosen) && (
+            <div className="card hero">
+              <strong>自分の問い</strong>
+              <p style={{ margin: "6px 0 0" }}>{p.exploration.my_question.trim() || p.exploration.questions.find((q) => q.id === p.exploration.chosen)?.question}</p>
+              {!p.exploration.my_question.trim() && <p className="muted">AI の候補のままです。「はじめの一歩」の 5 で自分の言葉に書き直してください。</p>}
+            </div>
+          )}
           <div className="card">
             <strong>書き方</strong>
             <ul className="muted" style={{ paddingLeft: 18, margin: "6px 0 0" }}>

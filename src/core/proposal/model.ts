@@ -3,7 +3,7 @@
 // 本文は平文で持つ。空行で段落、行頭の「- 」か「・」で箇条書き、**太字**、[@引用キー] で引用。
 // 引用キーは論文リストから作る(citeKeys)。リストに無いキーは書き出しで [?] になり、警告に出る
 
-import type { Memo, Paper, Proposal, ProposalSection, ScheduleRow } from "@/core/types";
+import type { Memo, Paper, Proposal, ProposalExploration, ProposalSection, ScheduleRow } from "@/core/types";
 import { citationKey } from "@/core/papers/bibtex";
 import { pad2 } from "@/core/schedule/logicalDay";
 
@@ -71,7 +71,11 @@ export function newSection(heading: string, hint = ""): ProposalSection {
   return { id: newId("s"), heading, hint, body: "", limit: null, feedback: null };
 }
 
-export function newProposal(templateId: string, input: { title?: string; purpose?: string }, now: Date): Proposal {
+export function emptyExploration(): ProposalExploration {
+  return { curiosity: "", queries: [], queries_ja: [], candidates: [], picked: [], questions: [], chosen: null, my_question: "" };
+}
+
+export function newProposal(templateId: string, input: { title?: string; purpose?: string; curiosity?: string }, now: Date): Proposal {
   const t = PROPOSAL_TEMPLATES.find((x) => x.id === templateId) ?? PROPOSAL_TEMPLATES[0];
   const sections = t.sections.map((s) => newSection(s.heading, s.hint));
   const iso = now.toISOString();
@@ -94,6 +98,7 @@ export function newProposal(templateId: string, input: { title?: string; purpose
       y_axis: { low: "", high: "" },
       points: [{ id: newId("m"), paper_id: null, label: "本研究", x: 0.8, y: 0.8 }],
     },
+    exploration: { ...emptyExploration(), curiosity: input.curiosity?.trim() ?? "" },
     created_at: iso,
     updated_at: iso,
   };
@@ -112,6 +117,7 @@ export function normalizeProposal(raw: Partial<Proposal> & { id: string }): Prop
     sections: Array.isArray(raw.sections) ? raw.sections.map((s) => ({ ...newSection(""), ...s })) : base.sections,
     schedule: { ...base.schedule, ...(raw.schedule ?? {}), rows: raw.schedule?.rows ?? [] },
     map: { ...base.map, ...(raw.map ?? {}), points: raw.map?.points ?? base.map.points },
+    exploration: { ...emptyExploration(), ...(raw.exploration ?? {}) },
   };
 }
 

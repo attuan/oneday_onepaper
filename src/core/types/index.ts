@@ -86,7 +86,7 @@ export type LlmProviderName = "anthropic" | "ollama" | "openai";
 export type AiVia = "auto" | "api" | "shortcut" | "paste";
 /** 論文検索のソース。一覧と説明は core/scholar/sources.ts */
 export type SourceId = "openalex" | "semanticscholar" | "crossref" | "arxiv" | "arxiv_local" | "pubmed" | "cinii" | "jstage";
-export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "digest" | "proposal" | "quiz";
+export type LlmTask = "recommend" | "rank" | "summary" | "grade" | "digest" | "proposal" | "quiz" | "question";
 
 export interface LlmUsageRow {
   at: string;
@@ -292,6 +292,53 @@ export interface MapFigure {
   points: MapPoint[];
 }
 
+/** はじめの一歩で見つけた論文の候補。計画書ファイルに残すので、要る列だけ持つ */
+export interface ExploreCandidate {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number | null;
+  venue: string | null;
+  doi: string | null;
+  url: string | null;
+  pdf_url: string | null;
+  abstract: string | null;
+  cited_by: number;
+  /** AI が付けた「この関心にとってなぜ役立つか」。並べ替えなかったときは空 */
+  reason: string;
+}
+
+/** AI が出した問いの候補。paper_ids は候補か論文リストにあるものだけ残す */
+export interface ResearchQuestion {
+  id: string;
+  question: string;
+  /** なぜ大事か */
+  why: string;
+  /** まだ分かっていないこと(候補論文のアブストから言える範囲で) */
+  unknown: string;
+  /** どう確かめるか(1 文) */
+  approach: string;
+  paper_ids: string[];
+  /** 最初に読むとよい 1 本 */
+  first_read: string | null;
+}
+
+/**
+ * はじめの一歩(仕様 13.1)。まだ論文を読んでいない人が、気になること → 検索語 → 論文の候補 → 問いの候補 → 自分の言葉の問い、と進むための記録
+ */
+export interface ProposalExploration {
+  curiosity: string;
+  queries: string[];
+  queries_ja: string[];
+  candidates: ExploreCandidate[];
+  /** 「気になる」に印を付けた候補 */
+  picked: string[];
+  questions: ResearchQuestion[];
+  chosen: string | null;
+  /** 選んだ問いを自分の言葉で書き直したもの。節を AI に見せるときの前提になる */
+  my_question: string;
+}
+
 export interface Proposal {
   version: 1;
   id: string;
@@ -306,6 +353,7 @@ export interface Proposal {
   references_heading: string;
   schedule: ScheduleFigure;
   map: MapFigure;
+  exploration: ProposalExploration;
   created_at: string;
   updated_at: string;
 }

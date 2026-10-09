@@ -9,6 +9,7 @@ import { LlmError, parseJsonLoose } from "@/core/llm/provider";
 import { squash } from "@/core/llm/tasks";
 import { compactMemoBody } from "@/core/records";
 import { citeKeys, citedKeys, sectionChars } from "./model";
+import { questionForCoach } from "./explore";
 
 /** 貼り付けで戻ってきたものがプロンプトのままかを見分ける */
 export const COACH_PROMPT_HEAD = "研究計画書の 1 つの節を読んで、書いた本人に返すコメントをください。";
@@ -103,6 +104,7 @@ export function buildCoachRequest(p: Proposal, sectionId: string, papers: Paper[
   const user = [
     `[計画書の目的・提出先] ${p.purpose.trim() || "(未記入)"}`,
     `[研究題目] ${p.title.trim() || "(未記入)"}`,
+    questionForCoach(p) ? `[本人の問い] ${questionForCoach(p)}` : "",
     "",
     "[ほかの節(要約)]",
     sectionContext(p, sectionId) || "(なし)",

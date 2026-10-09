@@ -14,7 +14,7 @@ import { judgeCompletion, levelThresholds } from "@/core/memo/completion";
 import { AnthropicProvider } from "@/core/llm/anthropic";
 import { OllamaProvider } from "@/core/llm/ollama";
 import { OpenAiCompatProvider } from "@/core/llm/openaiCompat";
-import { buildRankPrompt, parseHandoffResult, parseRankAnswer } from "@/core/llm/handoff";
+import { buildRankPrompt, buildRecommendPrompt, parseHandoffResult, parseRankAnswer } from "@/core/llm/handoff";
 import { parseJsonLoose, type LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem, type RecommendOutput } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
@@ -37,6 +37,8 @@ import { buildDocx, type ProposalImages } from "@/core/proposal/docx";
 import { buildLatexZip } from "@/core/proposal/latex";
 import { safeFileName, sectionChars } from "@/core/proposal/model";
 import * as proposalStore from "@/core/store/proposals";
+import { EXPLORE_CRITERION, MAX_SAVED_CANDIDATES, buildQuestionPrompt, buildQuestionRequest, explorePurpose, normalizeQuestions, parseQuestionAnswer, toExploreCandidate } from "@/core/proposal/explore";
+import type { ExploreCandidate, ResearchQuestion } from "@/core/types";
 
 export interface AppState {
   settings: Settings;
@@ -719,7 +721,7 @@ export async function listProposals(state: AppState): Promise<Proposal[]> {
   return proposalStore.listProposals(state.settings.data_dir);
 }
 
-export async function createProposal(state: AppState, templateId: string, input: { title?: string; purpose?: string }): Promise<Proposal> {
+export async function createProposal(state: AppState, templateId: string, input: { title?: string; purpose?: string; curiosity?: string }): Promise<Proposal> {
   const p = newProposal(templateId, input, new Date());
   await proposalStore.saveProposal(state.settings.data_dir, p);
   return p;
@@ -776,4 +778,72 @@ export async function exportProposalDocx(state: AppState, p: Proposal, images: P
 export async function exportProposalLatex(state: AppState, p: Proposal, images: ProposalImages): Promise<string> {
   const data = buildLatexZip(p, papersByKey(state.papers), images);
   return saveFile(`${safeFileName(p.title, "研究計画書")}-latex.zip`, data);
+}
+
+// ---- はじめの一歩(仕様 13.1) ----
+
+/** 気になることから検索語を作る(API)。貼り付けのときは exploreQueriesPrompt と parseRecommendAnswer を使う */
+export async function exploreQueries(state: AppState, curiosity: string): Promise<RecommendOutput> {
+  const llm = await makeProvider(state.settings);
+  const r = await runRecommend(llm, curiosity, explorePurpose(curiosity), state.settings.language, needJapanese(state));
+  await recordUsage(state.settings, "recommend", r.res);
+  return r.output;
+}
+
+export function exploreQueriesPrompt(state: AppState, curiosity: string): string {
+  return buildRecommendPrompt(curiosity, explorePurpose(curiosity), state.settings.language, needJapanese(state));
+}
+
+function needJapanese(state: AppState): boolean {
+  const ids = state.settings.search.sources.length ? state.settings.search.sources : DEFAULT_SOURCES;
+  return ids.map(sourceInfo).some((s) => s.lang === "ja");
+}
+
+/** 検索語で候補を集める。並べ替えはしない(rankExplore か貼り付けで別にする) */
+export async function exploreSearch(state: AppState, curiosity: string, queries: RecommendOutput): Promise<SearchResult> {
+  const keywords = queries.queries[0] ?? curiosity;
+  return searchPapers(state, keywords, explorePurpose(curiosity), false, undefined, EXPLORE_CRITERION, queries);
+}
+
+/** 候補を「問いを立てるのに役立つ順」に並べ、理由を付ける(API) */
+export async function rankExplore(state: AppState, result: SearchResult, curiosity: string): Promise<SearchResult> {
+  const llm = await makeProvider(state.settings);
+  const r = await runRank(llm, result.candidates, explorePurpose(curiosity), EXPLORE_CRITERION, state.settings.language);
+  await recordUsage(state.settings, "rank", r.res);
+  return { ...result, candidates: rankedCandidates(result.candidates, r.output), usedLlm: true };
+}
+
+export function rankExplorePrompt(state: AppState, result: SearchResult, curiosity: string): string {
+  return rankPromptFor(state, result, curiosity, explorePurpose(curiosity), EXPLORE_CRITERION);
+}
+
+/** 計画書に残す形にする */
+export function exploreCandidates(result: SearchResult): ExploreCandidate[] {
+  return result.candidates.slice(0, MAX_SAVED_CANDIDATES).map(toExploreCandidate);
+}
+
+/** 問いの候補を出す(API) */
+export async function exploreQuestions(state: AppState, p: Proposal): Promise<ResearchQuestion[]> {
+  if (!p.exploration.candidates.length && !state.memos.some((m) => m.frontmatter.completed)) throw new Error("先に論文の候補を探してください");
+  const { request, refs } = buildQuestionRequest(p, state.papers, state.memos, state.settings.language);
+  const llm = await makeProvider(state.settings);
+  const res = await llm.complete(request);
+  await recordUsage(state.settings, "question", res);
+  const qs = normalizeQuestions(parseJsonLoose(res.text), refs);
+  if (!qs.length) throw new Error("問いの候補を受け取れませんでした。もう一度試してください");
+  return qs;
+}
+
+export function exploreQuestionsPrompt(state: AppState, p: Proposal): { prompt: string; refs: Map<string, string> } {
+  return buildQuestionPrompt(p, state.papers, state.memos, state.settings.language);
+}
+
+export const acceptQuestionsAnswer = parseQuestionAnswer;
+
+/** 候補を論文リスト(今日の 1 本のキュー)に入れる */
+export async function queueExploreCandidates(state: AppState, cands: ExploreCandidate[], curiosity: string): Promise<{ state: AppState; added: number; errors: string[] }> {
+  return addMany(
+    state,
+    cands.map(({ cited_by: _c, reason, ...c }) => ({ ...c, source: "llm" as const, reason: reason || `研究計画の下調べ(${curiosity.trim().slice(0, 40)})` })),
+  );
 }

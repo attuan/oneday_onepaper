@@ -143,6 +143,23 @@ th { color: var(--muted); font-weight: 500; font-size: 13px; }
 .figure-preview svg { display: block; width: 100%; height: auto; }
 .map-preview { touch-action: none; cursor: grab; user-select: none; }
 tr.selected td { background: var(--blue-light); }
+.explore-wrap { margin-bottom: 16px; }
+.explore-wrap > summary { cursor: pointer; padding: 10px 14px; border: 1px solid var(--blue-mid); border-radius: var(--radius); background: var(--blue-light); color: var(--blue-dark); }
+.explore-wrap[open] > summary { border-radius: var(--radius) var(--radius) 0 0; }
+.explore-wrap > .card { border-top: 0; border-radius: 0 0 var(--radius) var(--radius); }
+.explore textarea { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; line-height: 1.6; }
+.explore-step { border-left: 2px solid var(--blue-mid); padding: 2px 0 14px 14px; margin-left: 11px; }
+.explore-step:last-of-type { border-left-color: transparent; }
+.explore-step.disabled { opacity: 0.5; }
+.explore-step .step-body { margin-top: 8px; }
+.step-no { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: -27px; border-radius: 50%; background: var(--white); border: 2px solid var(--blue); color: var(--blue); font-size: 12px; font-weight: 700; }
+.step-no.done { background: var(--blue); color: var(--white); }
+.explore-cands { list-style: none; padding: 0; margin: 8px 0; }
+.explore-cands li { border-top: 1px solid var(--border); padding: 8px 4px; font-size: 14px; line-height: 1.5; }
+.explore-cands li.picked { background: var(--blue-light); }
+.question { display: block; cursor: pointer; margin: 10px 0 0; font-size: 14px; }
+.question p { margin: 4px 0; }
+.question.chosen { border-color: var(--blue); background: var(--blue-light); }
 
 /* 狭い画面(モバイル、v2)。ナビを上のバーにして、2 列のものを 1 列にする */
 @media (max-width: 720px) {
