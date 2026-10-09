@@ -1,7 +1,7 @@
 // データのエクスポート/インポート。
 //
 // ZIP の中身はデータフォルダ(仕様 4.1)と同じ並びにする:
-//   OneDayOnePaper/papers.json, settings.json, state.sqlite, memos/*.md, proposals/*.json, pdfs/*.pdf
+//   OneDayOnePaper/papers.json, settings.json, issues.json, state.sqlite, memos/*.md, proposals/*.json, pdfs/*.pdf
 // だからデスクトップ版のフォルダを手で圧縮したものもそのまま取り込めるし、
 // ブラウザ版から書き出したものを解凍すればデスクトップ版のフォルダになる。
 // API キーは含めない。
@@ -16,11 +16,12 @@ const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 const SQLITE_MAGIC = "SQLite format 3";
 const EMPTY_PAPERS = '{\n  "version": 1,\n  "papers": []\n}';
 
-export type EntryKind = "papers" | "settings" | "db" | "memo" | "proposal" | "pdf";
+export type EntryKind = "papers" | "settings" | "issues" | "db" | "memo" | "proposal" | "pdf";
 
 const TOP_FILES = new Map<string, EntryKind>([
   ["papers.json", "papers"],
   ["settings.json", "settings"],
+  ["issues.json", "issues"],
   ["state.sqlite", "db"],
 ]);
 
@@ -110,7 +111,7 @@ export function countPapers(bytes: Uint8Array): number {
   return papers.length;
 }
 
-function isSettingsJson(bytes: Uint8Array): boolean {
+function isJsonObject(bytes: Uint8Array): boolean {
   try {
     const j = JSON.parse(new TextDecoder().decode(bytes));
     return typeof j === "object" && j !== null && !Array.isArray(j);
@@ -132,7 +133,7 @@ const stamp = (d: Date) => `${ymd(d)}_${pad(d.getHours())}${pad(d.getMinutes())}
 export interface ExportResult {
   fileName: string;
   data: Uint8Array;
-  counts: { papers: boolean; memos: number; proposals: number; pdfs: number; db: boolean; settings: boolean };
+  counts: { papers: boolean; memos: number; proposals: number; pdfs: number; db: boolean; settings: boolean; issues: boolean };
 }
 
 async function listByExt(dir: string, ext: string): Promise<string[]> {
@@ -152,6 +153,8 @@ export async function exportArchive(dataDir: string, opts: { includePdfs: boolea
 
   const settings = await fs.readBinary(joinPath(dataDir, "settings.json"));
   if (settings) add("settings.json", settings);
+  const issues = await fs.readBinary(joinPath(dataDir, "issues.json"));
+  if (issues) add("issues.json", issues);
   const sqlite = await fs.readBinary(joinPath(dataDir, "state.sqlite"));
   if (sqlite) add("state.sqlite", sqlite);
 
@@ -180,7 +183,7 @@ export async function exportArchive(dataDir: string, opts: { includePdfs: boolea
   return {
     fileName: `${ARCHIVE_ROOT}-${ymd(now)}.zip`,
     data: zipSync(files),
-    counts: { papers: !!papers, memos: memos.length, proposals: proposals.length, pdfs: pdfCount, db: !!sqlite, settings: !!settings },
+    counts: { papers: !!papers, memos: memos.length, proposals: proposals.length, pdfs: pdfCount, db: !!sqlite, settings: !!settings, issues: !!issues },
   };
 }
 
@@ -193,6 +196,7 @@ export interface ImportReport {
   pdfs: number;
   db: boolean;
   settings: boolean;
+  issues: boolean;
   skipped: string[];
   warnings: string[];
   /** 取り込む前のデータを書き出した場所(データフォルダ内) */
@@ -218,7 +222,7 @@ async function removeIfExists(path: string): Promise<void> {
  * 現在のデータを ZIP の中身で置き換える。
  * - memos/ は置き換える。papers.json は必須
  * - state.sqlite は ZIP に無ければ消す(メモから作り直される)
- * - settings.json・proposals/・pdfs/ は ZIP に入っているときだけ置き換える(研究計画書を入れる前の ZIP で消さないため)
+ * - settings.json・issues.json・proposals/・pdfs/ は ZIP に入っているときだけ置き換える(研究計画書を入れる前の ZIP で消さないため)
  * 書き換える前に、今のデータを backups/ に書き出しておく。
  * 呼んだ後は DB が閉じているので、画面を読み込み直すこと。
  */
@@ -249,8 +253,12 @@ export async function importArchive(dataDir: string, zip: Uint8Array, now = new 
 
   const warnings = [...plan.warnings];
   const entries = plan.entries.filter((e) => {
-    if (e.kind === "settings" && !isSettingsJson(data[e.name])) {
+    if (e.kind === "settings" && !isJsonObject(data[e.name])) {
       warnings.push("settings.json が壊れていたので、今の設定を残しました");
+      return false;
+    }
+    if (e.kind === "issues" && !isJsonObject(data[e.name])) {
+      warnings.push("issues.json が壊れていたので、今の論点の台帳を残しました");
       return false;
     }
     if (e.kind === "db" && !isSqlite(data[e.name])) {
@@ -300,6 +308,7 @@ export async function importArchive(dataDir: string, zip: Uint8Array, now = new 
     pdfs: entries.filter((e) => e.kind === "pdf").length,
     db: has("db"),
     settings: has("settings"),
+    issues: has("issues"),
     skipped: plan.skipped,
     warnings,
     backupPath,

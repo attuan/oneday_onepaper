@@ -1,0 +1,68 @@
+/* 論点の台帳と論点マップ。線の色 = 論文の立場(支持 青・反する 橙・条件を付ける 緑・提起 灰)。色だけに頼らず、ラベルと凡例を必ず添える */
+:root {
+  --st-supports: #2160bf;
+  --st-challenges: #d0661f;
+  --st-refines: #1d8a6b;
+  --st-raises: #8a94a6;
+}
+
+.stance { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text); }
+.stance i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.s-supports i, .edge-key.s-supports { background: var(--st-supports); }
+.s-challenges i, .edge-key.s-challenges { background: var(--st-challenges); }
+.s-refines i, .edge-key.s-refines { background: var(--st-refines); }
+.s-raises i, .edge-key.s-raises { background: var(--st-raises); }
+.noticed { font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+.noticed.yes { background: #e6f3ec; color: var(--ok); }
+.noticed.no { background: var(--blue-light); color: var(--muted); }
+
+.issues-reminder summary { cursor: pointer; }
+.issues-reminder ul { padding-left: 18px; margin: 8px 0; font-size: 13px; }
+.issues-reminder li { margin-bottom: 6px; }
+
+.proposal-item { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.proposal-item.new { border-style: dashed; }
+.proposal-item.off { opacity: 0.5; }
+.proposal-item .q { font-weight: 600; font-size: 14px; margin: 6px 0 2px; text-align: left; }
+.proposal-item .note { font-size: 13px; margin: 2px 0 4px; }
+.proposal-item textarea, .proposal-item .q-input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; margin-top: 4px; }
+.proposal-item .q-input { font-weight: 600; }
+.view-change { background: var(--blue-light); border-radius: 6px; padding: 6px 8px; margin-top: 4px; font-size: 13px; }
+
+.issue-map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.issue-map-card { margin-bottom: 16px; }
+.issue-graph { position: relative; width: 100%; touch-action: none; }
+.issue-graph svg { display: block; user-select: none; }
+.issue-graph .edge { stroke-width: 2; stroke-linecap: round; }
+.issue-graph .edge.s-supports { stroke: var(--st-supports); }
+.issue-graph .edge.s-challenges { stroke: var(--st-challenges); }
+.issue-graph .edge.s-refines { stroke: var(--st-refines); }
+.issue-graph .edge.s-raises { stroke: var(--st-raises); }
+.issue-graph .edge.dashed { stroke-dasharray: 5 4; }
+.issue-graph .dim { opacity: 0.15; }
+.issue-graph .node { cursor: grab; }
+.issue-graph .node .hit { fill: transparent; stroke: none; }
+.issue-graph .node.issue circle:not(.hit) { fill: var(--white); stroke: var(--blue-dark); stroke-width: 2; }
+.issue-graph .node.issue.settled circle:not(.hit) { fill: var(--blue-light); stroke: var(--muted); stroke-dasharray: 3 2; }
+.issue-graph .node.paper rect:not(.hit) { fill: var(--blue-dark); stroke: var(--white); stroke-width: 2; }
+.issue-graph .node.sel circle:not(.hit), .issue-graph .node.sel rect:not(.hit) { stroke: var(--st-challenges); stroke-width: 3; }
+.issue-graph text { font-size: 11px; fill: var(--text); paint-order: stroke; stroke: var(--white); stroke-width: 3px; pointer-events: none; }
+.issue-legend { margin: 0; }
+.edge-key { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+.edge-key.dashed { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); }
+.node-key { display: inline-block; width: 10px; height: 10px; }
+.node-key.issue { border: 2px solid var(--blue-dark); border-radius: 50%; }
+.node-key.paper { background: var(--blue-dark); border-radius: 2px; }
+.recall-strip { display: flex; gap: 4px; margin-top: 4px; }
+.recall-strip span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ok); }
+.recall-strip .all { background: var(--ok); }
+.recall-strip .some { background: linear-gradient(90deg, var(--ok) 50%, transparent 50%); }
+.view-history { padding-left: 18px; font-size: 13px; }
+.view-history li { margin-bottom: 8px; color: var(--muted); }
+.view-history li.current { color: var(--text); font-weight: 600; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: var(--blue-light); }
+
+@media (max-width: 900px) {
+  .issue-map-layout { grid-template-columns: minmax(0, 1fr); }
+}

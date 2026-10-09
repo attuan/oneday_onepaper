@@ -8,6 +8,7 @@ import { PaperLinks, PaperMeta } from "../components/PaperCard";
 import { Pomodoro } from "../components/Pomodoro";
 import { AiPanel } from "../components/AiPanel";
 import { UnderstandingFlow } from "../components/Understanding";
+import { IssuesPanel, IssuesReminder } from "../components/IssuesPanel";
 
 export function EditorPage({ state, setState, go, paperId }: PageProps & { paperId: string }) {
   const paper = state.papers.find((p) => p.id === paperId);
@@ -102,6 +103,7 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
         />
       </div>
       <div className="side">
+        <IssuesReminder state={state} go={go} />
         {state.settings.advanced && state.settings.pomodoro.enabled && <Pomodoro config={state.settings.pomodoro} />}
         <div className="card">
           <div className="muted">本文の文字数</div>
@@ -129,6 +131,7 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
             <AiPanel state={state} setState={setState} memo={memo} paper={paper} />
           </UnderstandingFlow>
         )}
+        {memo.frontmatter.completed && <IssuesPanel state={state} memo={memo} paper={paper} go={go} />}
       </div>
     </div>
   );

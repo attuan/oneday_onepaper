@@ -14,6 +14,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { UsagePage } from "./pages/UsagePage";
 import { GuidePage, LessonsPage } from "./pages/LessonsPage";
 import { ProposalPage } from "./pages/ProposalPage";
+import { IssuesPage } from "./pages/IssuesPage";
 import { ImportNotice } from "./components/ImportNotice";
 
 export type Page =
@@ -22,6 +23,7 @@ export type Page =
   | { name: "editor"; paperId: string }
   | { name: "calendar" }
   | { name: "proposal" }
+  | { name: "issues" }
   | { name: "papers"; article?: { url: string; title: string } }
   | { name: "explore" }
   | { name: "usage" }
@@ -41,6 +43,7 @@ const NAV: { page: Page; label: string; advanced?: boolean }[] = [
   { page: { name: "papers" }, label: "論文リスト" },
   { page: { name: "explore" }, label: "論文を探す" },
   { page: { name: "calendar" }, label: "カレンダー" },
+  { page: { name: "issues" }, label: "論点マップ" },
   { page: { name: "proposal" }, label: "研究計画書" },
   { page: { name: "usage" }, label: "API 使用量", advanced: true },
   { page: { name: "lessons" }, label: "講座" },
@@ -103,6 +106,7 @@ export function App() {
     case "editor": body = <EditorPage {...props} paperId={page.paperId} />; break;
     case "calendar": body = <CalendarPage {...props} />; break;
     case "proposal": body = <ProposalPage {...props} />; break;
+    case "issues": body = <IssuesPage {...props} />; break;
     case "papers": body = <PapersPage {...props} article={page.article} />; break;
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;

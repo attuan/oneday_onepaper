@@ -13,6 +13,7 @@ function seed(b: MemoryBackend, tag: string) {
   const put = (rel: string, data: Uint8Array | string) => b.files.set(`${DIR}/${rel}`, typeof data === "string" ? strToU8(data) : data);
   put("papers.json", papersJson(2));
   put("settings.json", JSON.stringify({ tag }));
+  put("issues.json", JSON.stringify({ version: 1, issues: [], links: [], tag }));
   put("state.sqlite", sqlite(1));
   put(`memos/2026-09-01_${tag}.md`, `# ${tag} 1`);
   put(`memos/2026-09-02_${tag}.md`, `# ${tag} 2`);
@@ -87,6 +88,7 @@ describe("exportArchive", () => {
     const r = await exportArchive(DIR, { includePdfs: false }, NOW);
     expect(r.fileName).toBe("OneDayOnePaper-2026-09-16.zip");
     expect(namesIn(r.data)).toEqual([
+      "OneDayOnePaper/issues.json",
       "OneDayOnePaper/memos/2026-09-01_a.md",
       "OneDayOnePaper/memos/2026-09-02_a.md",
       "OneDayOnePaper/papers.json",
@@ -94,7 +96,7 @@ describe("exportArchive", () => {
       "OneDayOnePaper/settings.json",
       "OneDayOnePaper/state.sqlite",
     ]);
-    expect(r.counts).toEqual({ papers: true, memos: 2, proposals: 1, pdfs: 0, db: true, settings: true });
+    expect(r.counts).toEqual({ papers: true, memos: 2, proposals: 1, pdfs: 0, db: true, settings: true, issues: true });
     expect(b.log[0]).toBe("db.flush");
   });
   it("includePdfs で PDF も入れる", async () => {
@@ -134,6 +136,20 @@ describe("importArchive", () => {
     const r = await importArchive(DIR, zipOf({ "papers.json": papersJson(1), "proposals/new.json": "{}" }), NOW);
     expect(r.proposals).toBe(1);
     expect(await b.fs.listDir(`${DIR}/proposals`)).toEqual(["new.json"]);
+  });
+
+  it("論点の台帳は ZIP に入っていれば置き換え、無ければ残す。壊れていれば残して警告", async () => {
+    seed(b, "old");
+    const old = textOf(b, `${DIR}/issues.json`);
+    await importArchive(DIR, zipOf({ "papers.json": papersJson(1) }), NOW);
+    expect(textOf(b, `${DIR}/issues.json`)).toBe(old);
+    const broken = await importArchive(DIR, zipOf({ "papers.json": papersJson(1), "issues.json": "{broken" }), NOW);
+    expect(broken.issues).toBe(false);
+    expect(broken.warnings.join()).toContain("issues.json");
+    expect(textOf(b, `${DIR}/issues.json`)).toBe(old);
+    const r = await importArchive(DIR, zipOf({ "papers.json": papersJson(1), "issues.json": '{"version":1}' }), NOW);
+    expect(r.issues).toBe(true);
+    expect(textOf(b, `${DIR}/issues.json`)).toBe('{"version":1}');
   });
 
   it("memos は置き換え、PDF と設定は ZIP に無ければ残し、state.sqlite は ZIP に無ければ消す", async () => {

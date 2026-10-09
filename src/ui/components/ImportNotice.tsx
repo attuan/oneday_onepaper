@@ -32,6 +32,7 @@ export function ImportNotice() {
   if (!r) return null;
   const parts = [`論文 ${r.papers} 件`, `メモ ${r.memos} 件`];
   if (r.proposals) parts.push(`研究計画書 ${r.proposals} 本`);
+  if (r.issues) parts.push("論点の台帳");
   if (r.pdfs) parts.push(`PDF ${r.pdfs} 件`);
   if (r.db) parts.push("記録(AI の要約・採点、使用量)");
   if (r.settings) parts.push("設定");
