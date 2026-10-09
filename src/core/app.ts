@@ -546,6 +546,13 @@ export async function makeProvider(settings: Settings): Promise<LlmProvider> {
   return new AnthropicProvider({ apiKey, model: settings.llm.model, fetch: appFetch });
 }
 
+/** 設定した API につながるかを、ごく短い頼みごとで確かめる。使用量には数えない(数トークンのため) */
+export async function testLlm(settings: Settings): Promise<{ model: string; text: string }> {
+  const llm = await makeProvider(settings);
+  const res = await llm.complete({ system: "短く答えてください。", user: "「OK」とだけ返してください。", maxTokens: 16, effort: "low" });
+  return { model: res.model || settings.llm.model, text: res.text.trim() };
+}
+
 export interface AiCostEstimate {
   inputTokens: number;
   outputTokensGuess: number;

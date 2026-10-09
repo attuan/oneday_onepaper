@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PageProps } from "../App";
 import type { Paper, Proposal, ProposalFeedback, ProposalSection } from "@/core/types";
-import { acceptCoachAnswer, apiUsable, coachCostUsd, coachPrompt, coachSection, createProposal, deleteProposal, listProposals, saveProposal } from "@/core/app";
+import { acceptCoachAnswer, apiUsable, coachCostUsd, coachPrompt, coachSection, createProposal, deleteProposal, listProposals, saveProposal, updateSettings } from "@/core/app";
 import { CITE_RE, PROPOSAL_TEMPLATES, citeKeys, insertCitationAfter, memoQuestions, newSection, papersByKey, parseCiteGroup, sectionChars, shortLabel } from "@/core/proposal/model";
 import { MIN_COACH_CHARS } from "@/core/proposal/coach";
 import { formatUsd } from "@/core/usage/cost";
@@ -11,6 +11,7 @@ import { ConfirmButton } from "../components/ConfirmButton";
 import { copyText } from "../clipboard";
 import { ProposalExport, ProposalFigures } from "../components/ProposalFigures";
 import { ProposalExplore } from "../components/ProposalExplore";
+import { LlmSetupCard } from "../components/LlmSetup";
 
 type Via = "api" | "paste";
 
@@ -128,12 +129,27 @@ function ProposalEditor({ state, setState, go, initial, onBack }: PageProps & { 
   const byKey = useMemo(() => papersByKey(state.papers), [state.papers]);
   const keyOf = useMemo(() => citeKeys(state.papers), [state.papers]);
 
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [readyMsg, setReadyMsg] = useState<string | null>(null);
+
+  // 選んだ使い方は、メモの画面の「実行方法」と同じ設定に残す。auto なら API が使えるときだけ API
   useEffect(() => {
     apiUsable(state.settings).then((ok) => {
       setApiOk(ok);
-      setVia(ok && state.settings.llm.summary_via !== "paste" ? "api" : "paste");
+      const v = state.settings.llm.summary_via;
+      setVia(v === "api" ? "api" : v === "auto" && ok ? "api" : "paste");
     });
   }, [state.settings]);
+
+  const chooseVia = async (v: Via) => {
+    setVia(v);
+    setSetupOpen(v === "api" && !apiOk);
+    setReadyMsg(null);
+    setState(await updateSettings(state, { ...state.settings, llm: { ...state.settings.llm, summary_via: v } }));
+  };
+  /** API を選んでいても、つながるまでは貼り付けで使えるようにしておく */
+  const effectiveVia: Via = via === "api" && apiOk ? "api" : "paste";
+  const providerLabel = { anthropic: "Anthropic", openai: "OpenAI 互換", ollama: "Ollama" }[state.settings.llm.provider];
 
   const update = (fn: (prev: Proposal) => Proposal) => {
     setP((prev) => {
@@ -189,12 +205,20 @@ function ProposalEditor({ state, setState, go, initial, onBack }: PageProps & { 
         </div>
         <div className="row">
           <span className="muted">AI の使い方</span>
-          <select value={via} onChange={(e) => setVia(e.target.value as Via)}>
-            {apiOk && <option value="api">API({state.settings.llm.model})</option>}
+          <select value={via} onChange={(e) => chooseVia(e.target.value as Via)}>
+            <option value="api">{apiOk ? `API(${providerLabel} / ${state.settings.llm.model})` : "API(キーを入れて使う)"}</option>
             <option value="paste">好きな AI に貼り付ける(キー不要)</option>
           </select>
+          {via === "api" && <button className="link" onClick={() => setSetupOpen(!setupOpen)}>{apiOk ? "設定を変える" : "設定する"}</button>}
         </div>
       </div>
+      {readyMsg && via === "api" && <p className="ok" style={{ marginTop: -4 }}>{readyMsg}</p>}
+      {via === "api" && (setupOpen || !apiOk) && (
+        <>
+          <LlmSetupCard state={state} setState={setState} onReady={(model) => { setApiOk(true); setSetupOpen(false); setReadyMsg(`API につながりました(${model})。各ボタンから直接頼めます。`); }} />
+          {!apiOk && <p className="muted" style={{ marginTop: -8 }}>設定が済むまでは、各ボタンは「好きな AI に貼り付ける」で動きます。</p>}
+        </>
+      )}
       <div className="proposal">
         <div>
           <details className="explore-wrap" open={exploreOpen} onToggle={(e) => setExploreOpen(e.currentTarget.open)}>
@@ -202,7 +226,7 @@ function ProposalEditor({ state, setState, go, initial, onBack }: PageProps & { 
               <strong>はじめの一歩: 気になることから問いを立てる</strong>
               {p.exploration.my_question.trim() && <span className="muted"> ・ 問い: {p.exploration.my_question.trim().slice(0, 60)}</span>}
             </summary>
-            <ProposalExplore state={state} setState={setState} proposal={p} update={update} via={via} />
+            <ProposalExplore state={state} setState={setState} proposal={p} update={update} via={effectiveVia} />
           </details>
           <div className="card">
             <div className="field">
@@ -234,7 +258,7 @@ function ProposalEditor({ state, setState, go, initial, onBack }: PageProps & { 
               section={s}
               index={i}
               total={p.sections.length}
-              via={via}
+              via={effectiveVia}
               byKey={byKey}
               keyOf={keyOf}
               onChange={(patch) => setSection(s.id, patch)}

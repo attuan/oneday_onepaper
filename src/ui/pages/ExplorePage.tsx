@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
-import { COURSE_CRITERION, RANK_CRITERION, addMany, apiUsable, applyRankAnswer, createCourse, rankPromptFor, searchPapers, type SearchResult } from "@/core/app";
+import { COURSE_CRITERION, RANK_CRITERION, addMany, apiUsable, updateSettings, applyRankAnswer, createCourse, rankPromptFor, searchPapers, type SearchResult } from "@/core/app";
 import { buildRecommendPrompt, parseRecommendAnswer } from "@/core/llm/handoff";
 import type { RecommendOutput } from "@/core/llm/tasks";
 import { STAGE_LABELS, buildCourse, stageOf } from "@/core/papers/course";
 import { SOURCES, sourceInfo } from "@/core/scholar/sources";
 import type { CourseStage, SourceId } from "@/core/types";
 import { PasteRoundTrip } from "../components/PasteRoundTrip";
+import { LlmSetupCard } from "../components/LlmSetup";
 
 const COURSE_SIZES = [5, 10, 15];
 
@@ -14,7 +15,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
   const [keywords, setKeywords] = useState("");
   const [purpose, setPurpose] = useState("");
   // api: 設定のプロバイダを呼ぶ / paste: 好きなチャット AI に貼って貼り戻す(仕様 7.4) / off: 使わない
-  const [via, setVia] = useState<"api" | "paste" | "off">("api");
+  const [choice, setVia] = useState<"api" | "paste" | "off">("paste");
   /** 貼り戻したクエリ。作ったときのキーワードと目的が今と違えば使わない */
   const [preset, setPreset] = useState<{ keywords: string; purpose: string; out: RecommendOutput } | null>(null);
   /** 被引用数順のままの検索結果。貼り付けで並べ直すときの元 */
@@ -32,10 +33,27 @@ export function ExplorePage({ state, setState, go }: PageProps) {
   const [courseTitle, setCourseTitle] = useState("");
   const [stages, setStages] = useState<Map<string, CourseStage>>(new Map());
 
-  // キーが無い人に、毎回「LLM に失敗しました」を見せない。代わりに貼り付けを出す
+  const [apiOk, setApiOk] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [readyMsg, setReadyMsg] = useState<string | null>(null);
+  /** API を選んでいても、つながるまでは貼り付けで動かす */
+  const via = choice === "api" && !apiOk ? "paste" : choice;
+  // 使い方はメモ・計画書と同じ設定(llm.summary_via)を見る。auto なら API が使えるときだけ API。
+  // キーが無い人に、毎回「LLM に失敗しました」を見せない
   useEffect(() => {
-    apiUsable(state.settings).then((ok) => setVia(ok ? "api" : "paste"));
+    apiUsable(state.settings).then((ok) => {
+      setApiOk(ok);
+      const v = state.settings.llm.summary_via;
+      setVia((cur) => (cur === "off" ? "off" : v === "api" ? "api" : v === "auto" && ok ? "api" : "paste"));
+    });
   }, [state.settings]);
+
+  const chooseVia = async (v: typeof choice) => {
+    setVia(v);
+    setReadyMsg(null);
+    setSetupOpen(v === "api" && !apiOk);
+    if (v !== "off") setState(await updateSettings(state, { ...state.settings, llm: { ...state.settings.llm, summary_via: v } }));
+  };
 
   const toggleSource = (id: SourceId) => {
     const s = new Set(sources);
@@ -122,12 +140,22 @@ export function ExplorePage({ state, setState, go }: PageProps) {
         )}
         <div className="field">
           <label>LLM でクエリ生成と順位付けをする</label>
-          <select value={via} onChange={(e) => setVia(e.target.value as typeof via)}>
-            <option value="api">API({state.settings.llm.provider} / {state.settings.llm.model})</option>
-            <option value="paste">好きな AI に貼り付ける(キー不要)</option>
-            <option value="off">使わない(キーワードで直接検索・被引用数順)</option>
-          </select>
+          <div className="row">
+            <select value={choice} onChange={(e) => chooseVia(e.target.value as typeof choice)}>
+              <option value="api">{apiOk ? `API(${state.settings.llm.provider} / ${state.settings.llm.model})` : "API(キーを入れて使う)"}</option>
+              <option value="paste">好きな AI に貼り付ける(キー不要)</option>
+              <option value="off">使わない(キーワードで直接検索・被引用数順)</option>
+            </select>
+            {choice === "api" && <button type="button" className="link" onClick={() => setSetupOpen(!setupOpen)}>{apiOk ? "設定を変える" : "設定する"}</button>}
+          </div>
         </div>
+        {readyMsg && choice === "api" && <p className="ok">{readyMsg}</p>}
+        {choice === "api" && (setupOpen || !apiOk) && (
+          <>
+            <LlmSetupCard state={state} setState={setState} onReady={(model) => { setApiOk(true); setSetupOpen(false); setReadyMsg(`API につながりました(${model})。クエリ生成と順位付けを API で頼めます。`); }} />
+            {!apiOk && <p className="muted">設定が済むまでは「好きな AI に貼り付ける」で動きます。</p>}
+          </>
+        )}
         {via === "paste" && (
           <details className="field">
             <summary>AI に検索クエリを作ってもらう(任意){presetNow && " — 作成済み"}</summary>
