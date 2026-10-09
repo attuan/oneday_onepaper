@@ -1,6 +1,7 @@
 // state.sqlite(仕様 4.4)。papers.json と memos/ から再構築できるインデックス
 
 import type { DayLog, GradeOutput, LlmUsageRow, SummaryOutput } from "@/core/types";
+import type { UnderstandingRecord } from "@/core/understanding";
 import { db, joinPath } from "./backend";
 
 const SCHEMA = `
@@ -31,6 +32,11 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
   est_cost_usd REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS understanding (
+  paper_id TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `;
 
@@ -102,6 +108,26 @@ export async function loadAiOutputs(paperId: string): Promise<{ summary: Summary
     if (r.kind === "grade") grade = JSON.parse(r.content);
   }
   return { summary, grade, inputKind };
+}
+
+export async function loadUnderstanding(paperId: string): Promise<UnderstandingRecord | null> {
+  const rows = await db.query<{ content: string }>("SELECT content FROM understanding WHERE paper_id = ?", [paperId]);
+  return rows[0] ? JSON.parse(rows[0].content) : null;
+}
+
+export async function saveUnderstanding(rec: UnderstandingRecord): Promise<void> {
+  await db.execute(
+    "INSERT INTO understanding(paper_id, content, updated_at) VALUES(?, ?, ?) ON CONFLICT(paper_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+    [rec.paper_id, JSON.stringify(rec), new Date().toISOString()],
+  );
+}
+
+/** 自己評価と採点がそろっている論文。つもりの差の推移に使う */
+export async function understandingWithGrades(): Promise<{ rec: UnderstandingRecord; grade: GradeOutput }[]> {
+  const rows = await db.query<{ u: string; g: string }>(
+    "SELECT u.content AS u, a.content AS g FROM understanding u JOIN ai_output a ON a.paper_id = u.paper_id AND a.kind = 'grade'",
+  );
+  return rows.map((r) => ({ rec: JSON.parse(r.u), grade: JSON.parse(r.g) }));
 }
 
 export async function insertUsage(u: LlmUsageRow): Promise<void> {

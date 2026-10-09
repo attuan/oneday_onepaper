@@ -1,0 +1,70 @@
+/* 理解の見える化。橙 = つもり(自己評価)、水色 = メモの採点、青 = 質問のあと */
+:root {
+  --u-self: #d0661f;
+  --u-memo: #6b9be0;
+  --u-after: #2160bf;
+  --u-grid: #e3e9f3;
+  --u-ok: var(--ok);
+  --u-partial: #a86a12;
+  --u-miss: var(--danger);
+}
+
+.u-self-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.u-self-label { display: flex; flex-direction: column; font-size: 14px; font-weight: 600; }
+.u-self-label .muted { font-weight: 400; font-size: 11px; }
+.u-seg { display: flex; border: 1px solid var(--blue); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.u-seg button { width: 30px; height: 30px; border: 0; background: var(--white); color: var(--blue); }
+.u-seg button + button { border-left: 1px solid var(--blue-mid); }
+.u-seg button.on { background: var(--blue); color: var(--white); font-weight: 700; }
+.u-scale { margin-top: 0; }
+
+.u-chart { position: relative; width: 100%; }
+.u-chart svg { display: block; overflow: visible; }
+.u-chart .grid { stroke: var(--u-grid); stroke-width: 1; }
+.u-chart .zero { stroke: var(--muted); stroke-width: 1; }
+.u-chart .tick { fill: var(--muted); font-size: 11px; }
+.u-chart .label { fill: var(--text); font-size: 12px; }
+.u-chart .hit { fill: transparent; }
+.u-chart .hit.on { fill: var(--blue-light); }
+.u-chart .dot { stroke: var(--white); stroke-width: 2; }
+.u-chart .dot.memo { fill: var(--u-memo); }
+.u-chart .dot.after { fill: var(--u-after); }
+.u-chart .dot.self { fill: none; stroke: var(--u-self); stroke-width: 2.5; }
+.u-chart .move { stroke-width: 2; stroke-linecap: round; }
+.u-chart .move.up, .u-chart .arrow.up { stroke: var(--u-after); fill: var(--u-after); }
+.u-chart .move.down, .u-chart .arrow.down { stroke: var(--u-miss); fill: var(--u-miss); }
+.u-chart .bar.over { fill: var(--u-self); }
+.u-chart .bar.under { fill: var(--u-after); }
+.u-chart .bar.even { fill: var(--muted); }
+
+.u-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 4px 0 6px; }
+.u-legend span, .u-tip div { display: inline-flex; align-items: center; gap: 5px; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.key.self { border: 2.5px solid var(--u-self); width: 11px; height: 11px; }
+.key.memo { background: var(--u-memo); }
+.key.after { background: var(--u-after); }
+.key.over { background: var(--u-self); border-radius: 2px; }
+.key.under { background: var(--u-after); border-radius: 2px; }
+.u-tip { position: absolute; left: 0; z-index: 2; background: var(--white); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(15, 36, 64, 0.12); max-width: 240px; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.u-gap { font-size: 14px; margin: 8px 0 0; }
+.u-delta { font-size: 13px; font-weight: 400; }
+
+.u-q { border: 1px solid var(--border); border-left: 4px solid var(--blue-mid); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+.u-q.v-ok { border-left-color: var(--u-ok); }
+.u-q.v-partial { border-left-color: var(--u-partial); }
+.u-q.v-miss { border-left-color: var(--u-miss); }
+.u-q-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.u-axis { background: var(--blue-light); color: var(--blue-dark); border-radius: 4px; padding: 1px 6px; }
+.u-verdict { margin-left: auto; font-weight: 600; }
+.v-ok > .u-q-head .u-verdict { color: var(--u-ok); }
+.v-partial > .u-q-head .u-verdict { color: var(--u-partial); }
+.v-miss > .u-q-head .u-verdict { color: var(--u-miss); }
+.u-q-text { font-weight: 600; margin: 6px 0; font-size: 14px; }
+.u-trail { display: flex; gap: 4px; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.u-trail .v-ok { color: var(--u-ok); }
+.u-trail .v-partial { color: var(--u-partial); }
+.u-trail .v-miss { color: var(--u-miss); }
+.u-answer { margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--border); font-size: 13px; white-space: pre-wrap; }
+.u-feedback { font-size: 13px; margin: 6px 0; }
+.u-input, .u-ask textarea { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; }
+.u-ask { display: flex; flex-direction: column; align-items: flex-start; }

@@ -9,6 +9,7 @@ import { LEVEL_LABELS } from "@/core/memo/completion";
 
 const HEAT_WEEKS = 18;
 import { PaperMeta } from "../components/PaperCard";
+import { CalibrationCard } from "../components/Understanding";
 
 export function HomePage({ state, setState, go }: PageProps) {
   const paper = today(state);
@@ -106,6 +107,7 @@ export function HomePage({ state, setState, go }: PageProps) {
           ))}
         </div>
       </div>
+      <CalibrationCard state={state} />
       <div className="row">
         <div className="card" style={{ flex: 1 }}><div className="muted">キュー</div><p className="title">{q.length} 本</p></div>
         <div className="card" style={{ flex: 1 }}><div className="muted">読了</div><p className="title">{state.papers.filter((p) => p.status === "read").length} 本</p></div>

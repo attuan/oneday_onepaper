@@ -7,6 +7,7 @@ import { LEVEL_LABELS, judgeCompletion, levelThresholds } from "@/core/memo/comp
 import { PaperLinks, PaperMeta } from "../components/PaperCard";
 import { Pomodoro } from "../components/Pomodoro";
 import { AiPanel } from "../components/AiPanel";
+import { UnderstandingFlow } from "../components/Understanding";
 
 export function EditorPage({ state, setState, go, paperId }: PageProps & { paperId: string }) {
   const paper = state.papers.find((p) => p.id === paperId);
@@ -123,7 +124,11 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
           {shareMsg && <p className="muted">{shareMsg}</p>}
           <PaperLinks paper={paper} />
         </div>
-        {memo.frontmatter.completed && <AiPanel state={state} setState={setState} memo={memo} paper={paper} />}
+        {memo.frontmatter.completed && (
+          <UnderstandingFlow state={state} memo={memo} paper={paper}>
+            <AiPanel state={state} setState={setState} memo={memo} paper={paper} />
+          </UnderstandingFlow>
+        )}
       </div>
     </div>
   );
