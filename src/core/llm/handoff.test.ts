@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHandoffPrompt, handoffReturnPaperId, handoffReturnUrl, parseHandoffResult, shortcutRunUrl } from "./handoff";
+import { buildHandoffPrompt, buildRankPrompt, buildRecommendPrompt, handoffReturnPaperId, handoffReturnUrl, parseHandoffResult, parseRankAnswer, parseRecommendAnswer, shortcutRunUrl } from "./handoff";
 import { newPaper } from "@/core/papers/queue";
 
 const paper = newPaper({ title: "Attention Is All You Need", id: "10.1/x y", authors: ["Vaswani"] }, [], "t");
@@ -51,5 +51,32 @@ describe("ショートカットの URL", () => {
   it("名前と戻り先を載せる", () => {
     const u = shortcutRunUrl("One Day", "https://a/b?ai_return=1");
     expect(u.startsWith("shortcuts://x-callback-url/run-shortcut?name=One%20Day&x-success=https%3A%2F%2Fa%2Fb%3Fai_return%3D1")).toBe(true);
+  });
+});
+
+describe("論文を探す: 貼り付けでのクエリ生成と順位付け", () => {
+  const cands = [{ id: "a", title: "A" }, { id: "b", title: "B" }, { id: "c", title: "C" }];
+  it("クエリ: プロンプトにキーワードと返す形。回答はフェンス付きでも読む", () => {
+    const p = buildRecommendPrompt("RAG 評価", "修論", "ja", true);
+    expect(p).toContain("RAG 評価");
+    expect(p).toContain("queries_ja");
+    expect(parseRecommendAnswer('どうぞ\n```json\n{"queries":["rag evaluation"," "],"queries_ja":["検索拡張生成"]}\n```', p)).toEqual({ queries: ["rag evaluation"], queries_ja: ["検索拡張生成"] });
+  });
+  it("クエリ: プロンプトのまま・空は断る", () => {
+    const p = buildRecommendPrompt("x", "", "ja", false);
+    expect(() => parseRecommendAnswer(p, p)).toThrow("プロンプトのまま");
+    expect(() => parseRecommendAnswer('{"queries":[]}', p)).toThrow("見つかりません");
+  });
+  it("順位: 知らない id は捨て、抜けた候補は末尾に", () => {
+    const p = buildRankPrompt(cands, "目的", "基準", "ja");
+    expect(p).toContain("id=b");
+    const r = parseRankAnswer('{"items":[{"id":"c","rank":1,"reason":"r1"},{"id":"zzz","rank":2,"reason":"x"},{"id":"a","rank":"3","reason":"r3"}]}', p, cands);
+    expect(r.map((i) => i.id)).toEqual(["c", "a", "b"]);
+    expect(r[2].reason).toBe("");
+  });
+  it("順位: id が 1 つも合わなければ断る", () => {
+    const p = buildRankPrompt(cands, "目的", "基準", "ja");
+    expect(() => parseRankAnswer('{"items":[{"id":"1","rank":1,"reason":"r"}]}', p, cands)).toThrow("id が候補と合いません");
+    expect(() => parseRankAnswer("ごめんなさい", p, cands)).toThrow("JSON として読めません");
   });
 });

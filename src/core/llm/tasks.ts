@@ -1,7 +1,7 @@
 // LLM タスク(仕様 7.2): recommend / rank / summary / grade
 
 import type { GradeOutput, Paper, SummaryEvidence, SummaryField, SummaryOutput } from "@/core/types";
-import { parseJsonLoose, type LlmProvider, type LlmResponse } from "./provider";
+import { LlmError, parseJsonLoose, type LlmProvider, type LlmResponse } from "./provider";
 
 export const GRADE_ITEMS = [
   "問題設定を把握しているか",
@@ -187,9 +187,14 @@ export function buildRecommendRequest(keywords: string, context: string, languag
 
 export async function runRecommend(llm: LlmProvider, keywords: string, context: string, language: string, japanese = false): Promise<TaskResult<RecommendOutput>> {
   const res = await llm.complete(buildRecommendRequest(keywords, context, language, japanese));
-  const raw = parseJsonLoose<Partial<RecommendOutput>>(res.text);
+  return { output: parseRecommend(res.text), res };
+}
+
+/** API の出力にも、チャット AI から貼り戻したものにも使う */
+export function parseRecommend(text: string): RecommendOutput {
+  const raw = parseJsonLoose<Partial<RecommendOutput>>(text);
   const clean = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => String(x).trim()).filter(Boolean) : []);
-  return { output: { queries: clean(raw.queries), queries_ja: clean(raw.queries_ja) }, res };
+  return { queries: clean(raw.queries), queries_ja: clean(raw.queries_ja) };
 }
 
 // ---- rank: 候補を順位付けし「読むべき理由」を付ける ----
@@ -246,12 +251,21 @@ export function buildRankRequest(cands: RankCandidate[], purpose: string, criter
 
 export async function runRank(llm: LlmProvider, cands: RankCandidate[], purpose: string, criterion: string, language: string): Promise<TaskResult<RankItem[]>> {
   const res = await llm.complete(buildRankRequest(cands, purpose, criterion, language));
-  const out = parseJsonLoose<{ items: RankItem[] }>(res.text);
+  return { output: parseRank(res.text, cands), res };
+}
+
+/** API の出力にも、チャット AI から貼り戻したものにも使う。候補に無い id は捨て、抜けた候補は末尾に */
+export function parseRank(text: string, cands: RankCandidate[]): RankItem[] {
+  const out = parseJsonLoose<{ items?: unknown }>(text);
+  if (!Array.isArray(out.items)) throw new LlmError("items が見つかりません", "bad_output");
   const known = new Set(cands.map((c) => c.id));
-  const items = out.items.filter((it) => known.has(it.id)).sort((a, b) => a.rank - b.rank);
+  const items = (out.items as Partial<RankItem>[])
+    .filter((it): it is RankItem => !!it && typeof it.id === "string" && known.has(it.id))
+    .map((it, i) => ({ id: it.id, rank: Number.isFinite(Number(it.rank)) ? Number(it.rank) : i + 1, reason: typeof it.reason === "string" ? it.reason : "" }))
+    .sort((a, b) => a.rank - b.rank);
   // 抜けた候補は末尾に
   const seen = new Set(items.map((i) => i.id));
   let r = items.length;
   for (const c of cands) if (!seen.has(c.id)) items.push({ id: c.id, rank: ++r, reason: "" });
-  return { output: items, res };
+  return items;
 }

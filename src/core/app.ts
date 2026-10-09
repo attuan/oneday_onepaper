@@ -14,9 +14,9 @@ import { judgeCompletion, levelThresholds } from "@/core/memo/completion";
 import { AnthropicProvider } from "@/core/llm/anthropic";
 import { OllamaProvider } from "@/core/llm/ollama";
 import { OpenAiCompatProvider } from "@/core/llm/openaiCompat";
-import { parseHandoffResult } from "@/core/llm/handoff";
+import { buildRankPrompt, parseHandoffResult, parseRankAnswer } from "@/core/llm/handoff";
 import { parseJsonLoose, type LlmProvider } from "@/core/llm/provider";
-import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem } from "@/core/llm/tasks";
+import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem, type RecommendOutput } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
 import { appFetch, arxivIndexBackend, backendName, fs, joinPath, pdf, saveFile, secret, type ArxivIndexProgress, type ArxivIndexStats } from "@/core/store/backend";
 import { buildRelatedWorkRequest, monthDigest, monthReads, reviewKey, reviewsDue, type NearbyPaper, type ReviewItem } from "@/core/records";
@@ -236,14 +236,22 @@ export const RANK_CRITERION = "目的への関連度と、基礎から応用へ�
 /** コースを組むときの基準(仕様 8.1) */
 export const COURSE_CRITERION = "この分野に入ったばかりの人の入門コースとして読む順。まず全体像が分かるサーベイ・解説、次に基礎となる古典、最後に最近の代表的な研究";
 
-export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[], criterion = RANK_CRITERION): Promise<SearchResult> {
+/**
+ * useLlm は API を呼ぶかどうか。preset はチャット AI から貼り戻したクエリ(仕様 7.4)で、あれば API でクエリを作らない。
+ * 貼り付けで順位を付けるときは、ここでは被引用数順にしておき、あとで applyRankAnswer に回答を渡す
+ */
+export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[], criterion = RANK_CRITERION, preset?: RecommendOutput): Promise<SearchResult> {
   const warnings: string[] = [];
   const sources = (sourceIds?.length ? sourceIds : state.settings.search.sources.length ? state.settings.search.sources : DEFAULT_SOURCES).map(sourceInfo);
   const needJa = sources.some((s) => s.lang === "ja");
   let queries = [keywords];
   let queriesJa = needJa ? [keywords] : [];
   let llm: LlmProvider | null = null;
-  if (useLlm) {
+  if (preset) {
+    if (preset.queries.length) queries = preset.queries.slice(0, 6);
+    if (needJa && preset.queries_ja.length) queriesJa = [...new Set([keywords, ...preset.queries_ja])].slice(0, 4);
+  }
+  if (useLlm && !preset) {
     try {
       llm = await makeProvider(state.settings);
       const r = await runRecommend(llm, keywords, purpose, state.settings.language, needJa);
@@ -297,23 +305,33 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
       warnings.push(`順位付けに失敗したため被引用数順で表示します: ${e instanceof Error ? e.message : e}`);
     }
   }
-  let candidates: SearchResult["candidates"];
-  if (ranked) {
-    const byId = new Map(cands.map((c) => [c.id, c]));
-    // LLM が id を落としたり捏造したりしても、候補にあるものだけを並べる
-    const seen = new Set<string>();
-    candidates = ranked.flatMap((it) => {
-      const c = byId.get(it.id);
-      if (!c || seen.has(it.id)) return [];
-      seen.add(it.id);
-      return [{ ...c, reason: it.reason, rank: it.rank }];
-    });
-    const rest = cands.filter((c) => !seen.has(c.id)).map((c, i) => ({ ...c, reason: "", rank: candidates.length + i + 1 }));
-    candidates = [...candidates, ...rest];
-  } else {
-    candidates = [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: "", rank: i + 1 }));
-  }
+  const candidates = ranked ? rankedCandidates(cands, ranked) : [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: "", rank: i + 1 }));
   return { ...base, candidates, usedLlm: !!ranked, warnings };
+}
+
+function rankedCandidates(cands: Candidate[], ranked: RankItem[]): SearchResult["candidates"] {
+  const byId = new Map(cands.map((c) => [c.id, c]));
+  // LLM が id を落としたり捏造したりしても、候補にあるものだけを並べる
+  const seen = new Set<string>();
+  const out = ranked.flatMap((it) => {
+    const c = byId.get(it.id);
+    if (!c || seen.has(it.id)) return [];
+    seen.add(it.id);
+    return [{ ...c, reason: it.reason, rank: it.rank }];
+  });
+  const rest = cands.filter((c) => !seen.has(c.id)).map((c, i) => ({ ...c, reason: "", rank: out.length + i + 1 }));
+  return [...out, ...rest];
+}
+
+/** 順位付けを頼む文面。貼り付けで頼むときに使う(仕様 7.4) */
+export function rankPromptFor(state: AppState, result: SearchResult, keywords: string, purpose: string, criterion = RANK_CRITERION): string {
+  return buildRankPrompt(result.candidates, purpose || keywords, criterion, state.settings.language);
+}
+
+/** チャット AI の順位付けの回答で並べ直す。使用量には数えない */
+export function applyRankAnswer(result: SearchResult, text: string, prompt: string): SearchResult {
+  const ranked = parseRankAnswer(text, prompt, result.candidates);
+  return { ...result, candidates: rankedCandidates(result.candidates, ranked), usedLlm: true };
 }
 
 /** 選んだ候補を、この順のコースとしてキューの末尾に入れる(仕様 8.1) */

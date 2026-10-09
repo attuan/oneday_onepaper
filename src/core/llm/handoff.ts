@@ -5,7 +5,7 @@
 
 import type { GradeOutput, SummaryOutput } from "@/core/types";
 import { LlmError, parseJsonLoose } from "./provider";
-import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, normalizeGrade, paperHeader, verifyEvidence, type PaperContext } from "./tasks";
+import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, buildRankRequest, buildRecommendRequest, normalizeGrade, paperHeader, parseRank, parseRecommend, verifyEvidence, type PaperContext, type RankCandidate, type RankItem, type RecommendOutput } from "./tasks";
 
 /** 戻り先の URL に付けるパラメータ。値は論文 ID */
 export const RETURN_PARAM = "ai_return";
@@ -120,4 +120,48 @@ export function handoffReturnPaperId(pageUrl: string): string | null {
 export function shortcutRunUrl(shortcutName: string, returnUrl: string): string {
   const q = [`name=${encodeURIComponent(shortcutName)}`, `x-success=${encodeURIComponent(returnUrl)}`, `x-cancel=${encodeURIComponent(returnUrl)}`, `x-error=${encodeURIComponent(returnUrl)}`];
   return `shortcuts://x-callback-url/run-shortcut?${q.join("&")}`;
+}
+
+// ---- 論文を探す: クエリ生成と順位付け(仕様 7.4 / 8) ----
+// API と同じ指示を 1 つの文面にまとめる。スキーマ指定ができないので、返す形は例で示す
+
+function chatPrompt(req: { system: string; user: string }, example: unknown): string {
+  return [req.system, "", req.user, "", "下の形の JSON だけを返してください。前置き・説明・コードフェンスは不要です。", JSON.stringify(example, null, 1)].join("\n");
+}
+
+export function buildRecommendPrompt(keywords: string, context: string, language: string, japanese: boolean): string {
+  return chatPrompt(buildRecommendRequest(keywords, context, language, japanese), { queries: ["…", "…"], queries_ja: japanese ? ["…"] : [] });
+}
+
+export function buildRankPrompt(cands: RankCandidate[], purpose: string, criterion: string, language: string): string {
+  return chatPrompt(buildRankRequest(cands, purpose, criterion, language), { items: [{ id: cands[0]?.id ?? "…", rank: 1, reason: "…" }] });
+}
+
+/** 貼り戻されたものがプロンプトのままなら教える。読み違えのまま進むより分かりやすい */
+function checkPasted(text: string, prompt: string) {
+  if (!text.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
+  if (text.trim().startsWith(prompt.slice(0, 40))) throw new LlmError("貼り付けたのはこちらのプロンプトのままです。AI の回答をコピーしてから、もう一度押してください", "bad_output");
+}
+
+function readable<T>(f: () => T): T {
+  try {
+    return f();
+  } catch (e) {
+    const cut = e instanceof Error && e.message.includes("途中で切れて");
+    throw new LlmError(cut ? "AI の回答が途中で切れているようです。AI に「続けて」と頼んで、続きも含めてコピーしてください" : "AI の回答を JSON として読めませんでした。回答の最初の { から最後の } までをまるごとコピーしてください", "bad_output");
+  }
+}
+
+export function parseRecommendAnswer(text: string, prompt: string): RecommendOutput {
+  checkPasted(text, prompt);
+  const r = readable(() => parseRecommend(text));
+  if (!r.queries.length && !r.queries_ja.length) throw new LlmError("回答に検索クエリが見つかりません。AI の回答の JSON 全体をコピーしてください", "bad_output");
+  return r;
+}
+
+export function parseRankAnswer(text: string, prompt: string, cands: RankCandidate[]): RankItem[] {
+  checkPasted(text, prompt);
+  const items = readable(() => parseRank(text, cands));
+  if (!items.some((it) => it.reason)) throw new LlmError("回答の id が候補と合いません。AI の回答の JSON 全体をそのままコピーしてください", "bad_output");
+  return items;
 }
