@@ -5,6 +5,8 @@ import { articleInput } from "@/core/papers/article";
 import { queue } from "@/core/papers/queue";
 import { PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
+import { PasteRoundTrip } from "../components/PasteRoundTrip";
+import { alreadyListed, buildChatPapersPrompt, parseChatPapersAnswer, type ChatPaperInput } from "@/core/llm/handoff";
 
 const CRITERIA = ["基礎から応用へ(読む順として自然な順)", "難易度が低い順", "新しい順", "被引用・影響力が大きい順"];
 
@@ -17,6 +19,7 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
   const [showArticle, setShowArticle] = useState(!!shared);
   const [article, setArticle] = useState(shared ?? { url: "", title: "" });
   const [doiText, setDoiText] = useState("");
+  const [showChat, setShowChat] = useState(false);
   const [showBib, setShowBib] = useState(false);
   const [bibText, setBibText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -120,6 +123,7 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
           <button className="btn secondary" onClick={() => setShowBib((v) => !v)}>BibTeX</button>
             </>
           )}
+          <button className="btn secondary" onClick={() => setShowChat((v) => !v)}>AI チャットから追加</button>
           <button className="btn secondary" onClick={() => setShowDoi((v) => !v)}>DOI で追加</button>
           <button className="btn secondary" onClick={() => setShowArticle((v) => !v)}>記事を追加</button>
           <button className="btn" onClick={() => setShowAdd((v) => !v)}>手入力で追加</button>
@@ -149,6 +153,17 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
         </div>
       )}
       {msg.length > 0 && <div className="card">{msg.map((m, i) => m && <div key={i} className={i === 0 ? "ok" : "error"}>{m}</div>)}</div>}
+      {showChat && (
+        <ChatImport
+          state={state}
+          onAdd={async (inputs) => {
+            const r = await addMany(state, inputs);
+            setState(r.state);
+            setMsg([`${r.added} 本を追加しました`, ...r.errors]);
+            if (r.added) setShowChat(false);
+          }}
+        />
+      )}
       {showDoi && (
         <div className="card">
           <div className="field">
@@ -221,6 +236,61 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
         </tbody>
       </table>
     </>
+  );
+}
+
+const authorsShort = (a: string[]) => a.slice(0, 3).join(", ") + (a.length > 3 ? " ほか" : "");
+
+/** AI チャットで相談していた論文を、プロンプト 1 往復でまとめて追加する。AI の書誌は記憶頼みなので、選んでから入れる */
+function ChatImport({ state, onAdd }: { state: PageProps["state"]; onAdd: (inputs: ChatPaperInput[]) => Promise<void> }) {
+  const [cands, setCands] = useState<{ paper: ChatPaperInput; listed: boolean; picked: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const picked = cands.filter((c) => c.picked);
+  const toggle = (i: number) => setCands(cands.map((c, j) => (j === i ? { ...c, picked: !c.picked } : c)));
+  const add = async () => {
+    setBusy(true);
+    try {
+      await onAdd(picked.map((c) => c.paper));
+      setCands([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>AI チャットから追加</h2>
+      <p className="muted">ChatGPT や Claude などで論文の相談をしていたら、そのチャットの続きにプロンプトを貼って送ります。話題にした論文が JSON で返ってくるので、それを貼り戻すと候補が並びます。</p>
+      <PasteRoundTrip
+        prompt={buildChatPapersPrompt(state.settings.language)}
+        onAnswer={(text) => {
+          const ps = parseChatPapersAnswer(text);
+          setCands(ps.map((paper) => {
+            const listed = alreadyListed(paper, state.papers);
+            return { paper, listed, picked: !listed };
+          }));
+        }}
+      />
+      {cands.length > 0 && (
+        <>
+          <p className="muted">書誌情報は AI の記憶によるものです。DOI や年は、追加したあとに確かめてください。</p>
+          <table>
+            <tbody>
+              {cands.map((c, i) => (
+                <tr key={i}>
+                  <td style={{ width: 30 }}><input type="checkbox" checked={c.picked} onChange={() => toggle(i)} aria-label={`${c.paper.title} を追加する`} /></td>
+                  <td>
+                    <strong>{c.paper.title}</strong> {c.listed && <span className="badge">リストにあります</span>} {c.paper.kind === "article" && <span className="badge">記事</span>}
+                    <div className="muted">{[authorsShort(c.paper.authors ?? []), c.paper.year, c.paper.venue, c.paper.doi].filter(Boolean).join(" · ")}</div>
+                    {c.paper.reason && <div className="muted">{c.paper.reason}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="btn" disabled={busy || !picked.length} onClick={add}>{busy ? "追加中…" : `選んだ ${picked.length} 本を追加`}</button>
+        </>
+      )}
+    </div>
   );
 }
 

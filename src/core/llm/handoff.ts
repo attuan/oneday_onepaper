@@ -3,7 +3,10 @@
 // (b) ユーザーが好きなチャット AI に貼る。どちらも結果はクリップボード経由で貼り戻してもらう。
 // URL に本文を載せないのは、長さの上限(行きはショートカットの URL、帰りは配信サーバー)に当たるため
 
-import type { GradeOutput, SummaryOutput } from "@/core/types";
+import type { GradeOutput, Paper, SummaryOutput } from "@/core/types";
+import { articleInput } from "@/core/papers/article";
+import { ARXIV_ID_RE, arxivIdFromDoi } from "@/core/scholar/arxiv";
+import { extractDois } from "@/core/scholar/openalex";
 import { LlmError, parseJsonLoose } from "./provider";
 import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, buildRankRequest, buildRecommendRequest, normalizeGrade, paperHeader, parseRank, parseRecommend, verifyEvidence, type PaperContext, type RankCandidate, type RankItem, type RecommendOutput } from "./tasks";
 
@@ -164,4 +167,95 @@ export function parseRankAnswer(text: string, prompt: string, cands: RankCandida
   const items = readable(() => parseRank(text, cands));
   if (!items.some((it) => it.reason)) throw new LlmError("回答の id が候補と合いません。AI の回答の JSON 全体をそのままコピーしてください", "bad_output");
   return items;
+}
+
+// ---- AI チャットで話していた論文を論文リストへ(仕様 4.2) ----
+// 相談していたチャットの続きに貼ってもらうので、プロンプトに論文の情報は入れない。会話がそのまま材料になる
+
+const CHAT_PAPERS_HEAD = "ここまでの会話で話題にした論文を、論文リストに取り込むための JSON にまとめてください。";
+
+export function buildChatPapersPrompt(language: string): string {
+  const lang = language === "en" ? "English" : "日本語";
+  return [
+    CHAT_PAPERS_HEAD,
+    "- 会話に出てきた論文を、出てきた順にすべて挙げる。同じ論文は 1 回だけ。ブログや解説記事も挙げてよい(kind を \"article\" にし、url を必ず入れる)。",
+    "- title は原題のまま(英語の論文なら英語で)。訳さない。",
+    "- 書誌情報(authors, year, venue, doi, arxiv_id, url)は、会話に出たものか、確かに分かるものだけ。自信が無い項目は null にする。DOI や arXiv ID を推測で作らない。",
+    "- arxiv_id は「2301.00001」の形(版の v は付けない)。doi は「10.」で始まる部分だけ。",
+    `- reason は、会話の流れから「なぜこの論文を読むのか・読んで何を確かめたいか」を${lang}で 1〜2 文。`,
+    "下の形の JSON だけを返してください。前置き・説明・コードフェンスは不要です。",
+    JSON.stringify({ papers: [{ title: "…", authors: ["…"], year: 2017, venue: null, doi: null, arxiv_id: null, url: null, reason: "…", kind: "paper" }] }, null, 1),
+  ].join("\n");
+}
+
+export type ChatPaperInput = Partial<Paper> & { title: string };
+
+/** 記号・空白・大小を無視したタイトル。日本語のタイトルも残るように \W は使わない */
+const titleKey = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+
+const text = (v: unknown): string | null => (typeof v === "string" && v.trim() && !/^(null|none|不明|n\/a|unknown)$/i.test(v.trim()) ? v.trim() : null);
+
+function chatPaper(o: Record<string, unknown>): ChatPaperInput | null {
+  const title = text(o.title);
+  if (!title) return null;
+  const authors = Array.isArray(o.authors) ? o.authors.map(text).filter((a): a is string => !!a) : (text(o.authors)?.split(/\s*[;;、]\s*/).filter(Boolean) ?? []);
+  const y = typeof o.year === "number" ? o.year : Number.parseInt(String(o.year ?? ""), 10);
+  const year = Number.isInteger(y) && y >= 1000 && y <= 2100 ? y : null;
+  const arxiv = ARXIV_ID_RE.exec(text(o.arxiv_id) ?? "")?.[1] ?? null;
+  const doiText = text(o.doi);
+  const doi = doiText ? (extractDois(doiText)[0] ?? null) : arxiv ? `10.48550/arxiv.${arxiv}` : null;
+  const arxivOfDoi = arxiv ?? (doi ? arxivIdFromDoi(doi) : null);
+  const url = text(o.url);
+  if (o.kind === "article" && url && !doi) {
+    const a = articleInput(url, title);
+    if (a) return { ...a, reason: text(o.reason), source: "import" };
+  }
+  return {
+    title,
+    authors,
+    year,
+    venue: text(o.venue),
+    doi,
+    url: url ?? (arxivOfDoi ? `https://arxiv.org/abs/${arxivOfDoi}` : doi ? `https://doi.org/${doi}` : null),
+    pdf_url: arxivOfDoi ? `https://arxiv.org/pdf/${arxivOfDoi}` : null,
+    reason: text(o.reason),
+    source: "import",
+  };
+}
+
+/** 貼り戻された JSON から論文の候補を取り出す。{ papers: [...] } でも配列だけでもよい */
+export function parseChatPapersAnswer(answer: string): ChatPaperInput[] {
+  if (!answer.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
+  if (answer.trim().startsWith(CHAT_PAPERS_HEAD)) throw new LlmError("貼り付けたのはこちらのプロンプトのままです。AI の回答をコピーしてから、もう一度押してください", "bad_output");
+  const raw = readable(() => {
+    const t = answer.trim();
+    // 配列だけで返すモデルもある。parseJsonLoose は { から読むので先に試す
+    if (t.startsWith("[")) {
+      try {
+        return JSON.parse(t) as unknown;
+      } catch {
+        /* 下で緩く読む */
+      }
+    }
+    return parseJsonLoose<unknown>(t);
+  });
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? ((raw as Record<string, unknown>).papers ?? [raw]) : [];
+  const out: ChatPaperInput[] = [];
+  const seen = new Set<string>();
+  for (const o of Array.isArray(list) ? list : []) {
+    if (!o || typeof o !== "object") continue;
+    const p = chatPaper(o as Record<string, unknown>);
+    if (!p) continue;
+    const key = p.doi ?? titleKey(p.title);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  if (!out.length) throw new LlmError("回答に論文が見つかりません。AI の回答の JSON 全体をコピーしてください", "bad_output");
+  return out;
+}
+
+/** すでにリストにある(外したものは除く)か。DOI か、記号と大小を無視したタイトルで見る */
+export function alreadyListed(p: ChatPaperInput, papers: Paper[]): boolean {
+  return papers.some((q) => q.status !== "removed" && ((p.doi && q.doi === p.doi) || (p.id && q.id === p.id) || titleKey(q.title) === titleKey(p.title)));
 }

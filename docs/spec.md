@@ -121,6 +121,10 @@ Markdown と JSON は人が読める。SQLite は集計と検索のためのイ�
 - 手入力の最低必須は `title` のみ。
 - インポート: CSV(上記の列名に対応)、DOI の羅列(1 行 1 DOI。書誌情報は Crossref / OpenAlex から補完)、
   BibTeX(ファイルか貼り付け。`src/core/papers/bibtex.ts`)。
+- AI チャットから追加(2026-10-14): ChatGPT などで論文の相談をしていたチャットの続きに貼るプロンプトをコピーし、
+  話題にした論文を `{ papers: [{ title, authors, year, venue, doi, arxiv_id, url, reason, kind }] }` で返してもらって貼り戻す(7.4 と同じ往復。`PasteRoundTrip`)。
+  arXiv ID からは DOI・URL・PDF を作る。書誌は AI の記憶なので、候補を並べてから選んで入れる。DOI か記号を無視したタイトルで
+  リストにあるものは、最初から外しておく。`reason` は会話から書いてもらう。
 - BibTeX の取り込みでは元のエントリを `bibtex` に残す。書き出し(`papersToBibtex`)は `bibtex` があればそのまま、
   無ければ書誌情報から生成する。引用キーは「筆頭著者の姓 + 年 + タイトルの最初の語」を ASCII に落としたもので、
   重なれば a, b, … を付ける。arXiv の DOI は `eprint` / `archiveprefix` にする。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHandoffPrompt, buildRankPrompt, buildRecommendPrompt, handoffReturnPaperId, handoffReturnUrl, parseHandoffResult, parseRankAnswer, parseRecommendAnswer, shortcutRunUrl } from "./handoff";
+import { alreadyListed, buildChatPapersPrompt, buildHandoffPrompt, buildRankPrompt, buildRecommendPrompt, handoffReturnPaperId, handoffReturnUrl, parseChatPapersAnswer, parseHandoffResult, parseRankAnswer, parseRecommendAnswer, shortcutRunUrl } from "./handoff";
 import { newPaper } from "@/core/papers/queue";
 
 const paper = newPaper({ title: "Attention Is All You Need", id: "10.1/x y", authors: ["Vaswani"] }, [], "t");
@@ -78,5 +78,41 @@ describe("論文を探す: 貼り付けでのクエリ生成と順位付け", ()
     const p = buildRankPrompt(cands, "目的", "基準", "ja");
     expect(() => parseRankAnswer('{"items":[{"id":"1","rank":1,"reason":"r"}]}', p, cands)).toThrow("id が候補と合いません");
     expect(() => parseRankAnswer("ごめんなさい", p, cands)).toThrow("JSON として読めません");
+  });
+});
+
+describe("AI チャットから論文を追加", () => {
+  it("プロンプトに返す形が入る", () => {
+    const p = buildChatPapersPrompt("ja");
+    expect(p).toContain("ここまでの会話");
+    expect(p).toContain('"arxiv_id"');
+  });
+  it("arXiv ID から DOI・URL・PDF を作る。null や「不明」は空にする", () => {
+    const r = parseChatPapersAnswer("```json\n" + JSON.stringify({ papers: [{ title: "Attention Is All You Need", authors: ["Vaswani", "不明"], year: "2017年", venue: "null", doi: null, arxiv_id: "arXiv:1706.03762v5", url: null, reason: "Transformer の原典" }] }) + "\n```");
+    expect(r).toEqual([{ title: "Attention Is All You Need", authors: ["Vaswani"], year: 2017, venue: null, doi: "10.48550/arxiv.1706.03762", url: "https://arxiv.org/abs/1706.03762", pdf_url: "https://arxiv.org/pdf/1706.03762", reason: "Transformer の原典", source: "import" }]);
+  });
+  it("配列だけでもよい。DOI は URL 形式でも読む。重複とタイトルの無いものは落とす。記事は記事として入る", () => {
+    const r = parseChatPapersAnswer(JSON.stringify([
+      { title: "Deep Residual Learning", authors: "He; Zhang", doi: "https://doi.org/10.1109/CVPR.2016.90" },
+      { title: "deep residual learning!", doi: "10.1109/cvpr.2016.90" },
+      { title: "" },
+      { title: "Transformer 解説", kind: "article", url: "https://zenn.dev/x/articles/y?utm_source=a" },
+    ]));
+    expect(r.map((p) => [p.title, p.doi, p.authors])).toEqual([["Deep Residual Learning", "10.1109/cvpr.2016.90", ["He", "Zhang"]], ["Transformer 解説", undefined, undefined]]);
+    expect(r[0].url).toBe("https://doi.org/10.1109/cvpr.2016.90");
+    expect(r[1]).toMatchObject({ kind: "article", id: "url:https://zenn.dev/x/articles/y", source: "import" });
+  });
+  it("読めなければエラー", () => {
+    expect(() => parseChatPapersAnswer(" ")).toThrow(/空/);
+    expect(() => parseChatPapersAnswer(buildChatPapersPrompt("ja"))).toThrow(/プロンプトのまま/);
+    expect(() => parseChatPapersAnswer('{"papers": []}')).toThrow(/論文が見つかりません/);
+    expect(() => parseChatPapersAnswer('{"papers": [{"title": "a"')).toThrow(/途中で切れて/);
+  });
+  it("リストにあるかは DOI かタイトルで見る。日本語のタイトルどうしを取り違えない", () => {
+    const papers = [newPaper({ title: "Attention Is All You Need", doi: "10.48550/arXiv.1706.03762" }, [], "t"), newPaper({ title: "深層学習入門" }, [], "t")];
+    expect(alreadyListed({ title: "x", doi: "10.48550/arxiv.1706.03762" }, papers)).toBe(true);
+    expect(alreadyListed({ title: "attention is all you need." }, papers)).toBe(true);
+    expect(alreadyListed({ title: "深層学習入門" }, papers)).toBe(true);
+    expect(alreadyListed({ title: "強化学習入門" }, papers)).toBe(false);
   });
 });
