@@ -67,13 +67,42 @@ export async function searchWorks(query: string, fetchFn: FetchFn, perPage = 15)
 export async function lookupDoi(doi: string, fetchFn: FetchFn): Promise<Candidate | null> {
   const d = normalizeDoi(doi);
   const arxivId = arxivIdFromDoi(d);
-  if (arxivId) return lookupArxiv(arxivId, fetchFn);
+  if (arxivId) return lookupArxivWithFallback(arxivId, d, fetchFn);
+  return lookupOpenAlex(d, fetchFn);
+}
+
+async function lookupOpenAlex(d: string, fetchFn: FetchFn): Promise<Candidate | null> {
   // DOI はパスにそのまま置く("/" をエンコードすると 404 になる)
   const url = `${BASE}/works/https://doi.org/${d.replace(/ /g, "%20")}?select=${SELECT}&${UA}`;
   const res = await fetchFn(url);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
   return workToCandidate((await res.json()) as OaWork);
+}
+
+/**
+ * arXiv API が引けない(ブラウザ版で中継が無いと CORS で落ちる、混んでいて 429/503 など)ときは OpenAlex で引く。
+ * OpenAlex は arXiv の DOI を出版版の DOI に寄せて返すので、id・URL・PDF は arXiv のものに戻す
+ */
+async function lookupArxivWithFallback(arxivId: string, d: string, fetchFn: FetchFn): Promise<Candidate | null> {
+  let arxivError: unknown = null;
+  try {
+    const c = await lookupArxiv(arxivId, fetchFn);
+    if (c) return c;
+  } catch (e) {
+    arxivError = e;
+  }
+  let c: Candidate | null;
+  try {
+    c = await lookupOpenAlex(d, fetchFn);
+  } catch (e) {
+    throw arxivError ?? e;
+  }
+  if (!c) {
+    if (arxivError) throw arxivError;
+    return null;
+  }
+  return { ...c, id: d, doi: d, url: `https://arxiv.org/abs/${arxivId}`, pdf_url: `https://arxiv.org/pdf/${arxivId}` };
 }
 
 /** テキストから DOI と arXiv ID を拾う。arXiv ID は DOI 形式に正規化する */

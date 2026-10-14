@@ -56,3 +56,33 @@ describe("arxiv", () => {
     expect(extractIdentifiers("1706.03762\narXiv:2312.10997v2\n10.1109/CVPR.2016.90").sort()).toEqual(["10.1109/cvpr.2016.90", "10.48550/arxiv.1706.03762", "10.48550/arxiv.2312.10997"]);
   });
 });
+
+import { lookupDoi } from "./openalex";
+
+describe("lookupDoi(arXiv の DOI)", () => {
+  const work = {
+    id: "https://openalex.org/W4403826407",
+    doi: "https://doi.org/10.1080/01621459.2026.2689629",
+    title: "Causal Inference with Generative Artificial Intelligence",
+    publication_year: 2026,
+    authorships: [{ author: { display_name: "Kosuke Imai" } }],
+    primary_location: { source: { display_name: "Journal of the American Statistical Association" }, landing_page_url: "https://doi.org/10.1080/01621459.2026.2689629" },
+    cited_by_count: 2,
+  };
+  const fakeFetch = (arxiv: () => Promise<Response>) =>
+    (async (input: RequestInfo | URL) => (String(input).includes("export.arxiv.org") ? arxiv() : new Response(JSON.stringify(work), { status: 200 }))) as typeof fetch;
+
+  it("arXiv API が落ちたら OpenAlex で引き、id と URL は arXiv のまま", async () => {
+    const c = await lookupDoi("10.48550/arXiv.2410.00903", fakeFetch(() => Promise.reject(new TypeError("Failed to fetch"))));
+    expect(c).toMatchObject({ id: "10.48550/arxiv.2410.00903", doi: "10.48550/arxiv.2410.00903", title: work.title, year: 2026, venue: "Journal of the American Statistical Association", url: "https://arxiv.org/abs/2410.00903", pdf_url: "https://arxiv.org/pdf/2410.00903" });
+  });
+  it("arXiv API が空なら OpenAlex で引く", async () => {
+    const c = await lookupDoi("10.48550/arxiv.2410.00903", fakeFetch(async () => new Response("<feed></feed>", { status: 200 })));
+    expect(c?.title).toBe(work.title);
+  });
+  it("arXiv API が引ければ OpenAlex は使わない", async () => {
+    const xml = `<feed><entry><id>http://arxiv.org/abs/2410.00903v5</id><title>From arXiv</title><published>2024-10-01T17:46:21Z</published><summary>s</summary></entry></feed>`;
+    const c = await lookupDoi("10.48550/arxiv.2410.00903", fakeFetch(async () => new Response(xml, { status: 200 })));
+    expect(c).toMatchObject({ title: "From arXiv", sources: ["arxiv"] });
+  });
+});

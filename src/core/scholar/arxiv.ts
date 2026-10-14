@@ -1,4 +1,4 @@
-// arXiv API(Atom)。OpenAlex が arXiv の DOI(10.48550/arXiv.xxxx)を持っていないためのフォールバック
+// arXiv API(Atom)。arXiv の DOI(10.48550/arXiv.xxxx)はまずここで引く。引けないときは openalex.ts の lookupDoi が OpenAlex に回す
 
 import type { Candidate, FetchFn } from "./types";
 
