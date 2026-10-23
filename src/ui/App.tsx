@@ -24,7 +24,7 @@ export type Page =
   | { name: "calendar" }
   | { name: "proposal" }
   | { name: "issues" }
-  | { name: "papers"; article?: { url: string; title: string } }
+  | { name: "papers"; article?: { url: string; title: string }; snowball?: string }
   | { name: "explore" }
   | { name: "usage" }
   | { name: "lessons" }
@@ -107,7 +107,7 @@ export function App() {
     case "calendar": body = <CalendarPage {...props} />; break;
     case "proposal": body = <ProposalPage {...props} />; break;
     case "issues": body = <IssuesPage {...props} />; break;
-    case "papers": body = <PapersPage {...props} article={page.article} />; break;
+    case "papers": body = <PapersPage {...props} article={page.article} snowball={page.snowball} />; break;
     case "explore": body = <ExplorePage {...props} />; break;
     case "usage": body = <UsagePage {...props} />; break;
     case "lessons": body = <LessonsPage />; break;

@@ -5,7 +5,7 @@ import type { CourseStage, Paper } from "@/core/types";
 
 export const STAGE_LABELS: Record<CourseStage, string> = { survey: "全体像", classic: "基礎", recent: "最近" };
 
-const SURVEY_RE = /\b(survey|review|overview|tutorial|primer|introduction to)\b|サーベイ|レビュー|総説|解説|展望|入門/i;
+export const SURVEY_RE = /\b(survey|review|overview|tutorial|primer|introduction to)\b|サーベイ|レビュー|総説|解説|展望|入門/i;
 
 export interface CourseCandidate {
   id: string;

@@ -3,16 +3,20 @@ import type { PageProps } from "../App";
 import { addMany, addPaper, exportBibtex, importBibtex, importCsv, importDois, llmReorderQueue, remove, reorder } from "@/core/app";
 import { articleInput } from "@/core/papers/article";
 import { queue } from "@/core/papers/queue";
+import type { Paper } from "@/core/types";
 import { PaperMeta } from "../components/PaperCard";
 import { ConfirmButton } from "../components/ConfirmButton";
 import { PasteRoundTrip } from "../components/PasteRoundTrip";
+import { SnowballPanel } from "../components/SnowballPanel";
 import { alreadyListed, buildChatPapersPrompt, parseChatPapersAnswer, type ChatPaperInput } from "@/core/llm/handoff";
 
 const CRITERIA = ["基礎から応用へ(読む順として自然な順)", "難易度が低い順", "新しい順", "被引用・影響力が大きい順"];
 
-export function PapersPage({ state, setState, go, article: shared }: PageProps & { article?: { url: string; title: string } }) {
+export function PapersPage({ state, setState, go, article: shared, snowball }: PageProps & { article?: { url: string; title: string }; snowball?: string }) {
   const q = queue(state.papers);
   const read = state.papers.filter((p) => p.status === "read").sort((a, b) => (a.read_at! < b.read_at! ? 1 : -1));
+  // 引用をたどるパネルを開いている論文。メモの画面の「引用をたどる」からも開く(仕様 8.2)
+  const [snowFor, setSnowFor] = useState<Paper | null>(() => state.papers.find((p) => p.id === snowball) ?? null);
   const [msg, setMsg] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showDoi, setShowDoi] = useState(false);
@@ -153,6 +157,7 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
         </div>
       )}
       {msg.length > 0 && <div className="card">{msg.map((m, i) => m && <div key={i} className={i === 0 ? "ok" : "error"}>{m}</div>)}</div>}
+      {snowFor && <SnowballPanel state={state} setState={setState} paper={snowFor} onClose={() => setSnowFor(null)} />}
       {showChat && (
         <ChatImport
           state={state}
@@ -212,9 +217,10 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
                 {p.reason && <div className="muted">{p.reason}</div>}
                 {reasons.get(p.id) && <div className="muted">並べ替えの理由: {reasons.get(p.id)}</div>}
               </td>
-              <td style={{ whiteSpace: "nowrap", width: 220 }}>
+              <td style={{ whiteSpace: "nowrap", width: 270 }}>
                 <button className="btn secondary small" onClick={() => move(p.id, -1)} disabled={i === 0}>↑</button>{" "}
                 <button className="btn secondary small" onClick={() => move(p.id, 1)} disabled={i === q.length - 1}>↓</button>{" "}
+                {p.kind !== "article" && <><button className="btn secondary small" title="この論文が引いている・引かれている論文を探す" onClick={() => setSnowFor(p)}>引用</button>{" "}</>}
                 <button className="btn small" onClick={() => go({ name: "editor", paperId: p.id })}>メモ</button>{" "}
                 <ConfirmButton label="外す" confirmLabel="外す(確定)" onConfirm={async () => setState(await remove(state, p.id))} />
               </td>
@@ -230,7 +236,10 @@ export function PapersPage({ state, setState, go, article: shared }: PageProps &
             <tr key={p.id}>
               <td className="muted" style={{ width: 110 }}>{p.read_at?.slice(0, 10)}</td>
               <td><strong>{p.title}</strong><PaperMeta paper={p} /></td>
-              <td style={{ width: 80 }}><button className="btn small secondary" onClick={() => go({ name: "editor", paperId: p.id })}>メモ</button></td>
+              <td style={{ whiteSpace: "nowrap", width: 140 }}>
+                {p.kind !== "article" && <><button className="btn small secondary" title="この論文が引いている・引かれている論文を探す" onClick={() => setSnowFor(p)}>引用</button>{" "}</>}
+                <button className="btn small secondary" onClick={() => go({ name: "editor", paperId: p.id })}>メモ</button>
+              </td>
             </tr>
           ))}
         </tbody>

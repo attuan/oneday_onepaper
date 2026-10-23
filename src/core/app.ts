@@ -27,7 +27,9 @@ import { loadSettings, resolveDataDir, saveSettings } from "@/core/store/setting
 import { loadPapers, savePapers } from "@/core/store/papers";
 import { findMemoForPaper, listMemos, readsByDate, saveMemo } from "@/core/store/memos";
 import * as sql from "@/core/store/db";
-import { extractIdentifiers, lookupDoi } from "@/core/scholar/openalex";
+import { MAX_FILTER_OR, citingWorks, extractIdentifiers, lookupDoi, referencedOf, worksByIds, type WorkCandidate } from "@/core/scholar/openalex";
+import { MAX_REFS, MAX_SNOWBALL, annotateSnowball, resolveSeed, sortSnowball, type SnowballCandidate, type SnowballDirection } from "@/core/scholar/snowball";
+export type { SnowballCandidate, SnowballDirection } from "@/core/scholar/snowball";
 import { DEFAULT_SOURCES, dedupe, interleave, searchSource, sourceInfo } from "@/core/scholar/sources";
 import { ARXIV_METADATA_URL, arxivIdOf, arxivIndexPath, arxivParquetPath, similarInIndex } from "@/core/scholar/arxivLocal";
 import type { Candidate } from "@/core/scholar/types";
@@ -337,7 +339,7 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
   return { ...base, candidates, usedLlm: !!ranked, warnings };
 }
 
-function rankedCandidates(cands: Candidate[], ranked: RankItem[]): SearchResult["candidates"] {
+function rankedCandidates<T extends Candidate>(cands: T[], ranked: RankItem[]): (T & { reason: string; rank: number })[] {
   const byId = new Map(cands.map((c) => [c.id, c]));
   // LLM が id を落としたり捏造したりしても、候補にあるものだけを並べる
   const seen = new Set<string>();
@@ -367,6 +369,91 @@ export async function createCourse(state: AppState, title: string, picks: (Candi
   const id = `course:${Date.now().toString(36)}`;
   const inputs = picks.map(({ stage, ...c }, i) => ({ ...c, source: "llm" as const, reason: c.reason || null, course: { id, title: title.trim() || "コース", step: i + 1, stage } }));
   return addMany(state, inputs);
+}
+
+// ---- 引用をたどる(仕様 8.2) ----
+
+export interface SnowballResult {
+  direction: SnowballDirection;
+  /** 種が引いている総数(さかのぼる)/ 種を引いている総数(その後を追う)。candidates はその一部 */
+  total: number;
+  candidates: (SnowballCandidate & { reason: string; rank: number })[];
+  usedLlm: boolean;
+  warnings: string[];
+}
+
+/**
+ * 種の論文から引用をたどる(仕様 8.2)。backward は種が引いている論文、forward は種を引いている論文。
+ * 引用関係も書誌も OpenAlex の事実なので LLM は使わない(並べ替えは rankSnowball か貼り付けで別にする)。
+ * order は forward だけ意味を持つ(backward は常に共引用 → 被引用数の順)
+ */
+export async function snowball(state: AppState, paper: Paper, direction: SnowballDirection, order: "cited" | "recent" = "cited"): Promise<SnowballResult> {
+  if (paper.kind === "article") throw new Error("記事では引用をたどれません");
+  const warnings: string[] = [];
+  const seed = await resolveSeed(paper, appFetch);
+  if (!seed) throw new Error("OpenAlex でこの論文を見つけられませんでした。DOI を設定すると見つかりやすくなります");
+  let fetched: WorkCandidate[];
+  let total: number;
+  if (direction === "backward") {
+    total = seed.referenced.length;
+    fetched = await worksByIds(seed.referenced.slice(0, MAX_REFS), appFetch);
+  } else {
+    const r = await citingWorks(seed.workId, order === "recent" ? "publication_date:desc" : "cited_by_count:desc", appFetch);
+    fetched = r.items;
+    total = r.count;
+  }
+  // 共引用: リストの他の論文(DOI があるもの。読了を先に)の参照一覧を 1 回で引く。失敗しても本体は出す
+  let refsOfMine = new Map<string, string[]>();
+  const mine = state.papers.filter((p) => p.status !== "removed" && p.id !== paper.id && p.doi);
+  const dois = [...mine.filter((p) => p.status === "read"), ...mine.filter((p) => p.status !== "read")].slice(0, MAX_FILTER_OR).map((p) => p.doi!);
+  if (dois.length) {
+    try {
+      refsOfMine = await referencedOf(dois, appFetch);
+    } catch (e) {
+      warnings.push(`リスト内の論文との引用関係は取れませんでした(候補は出せます): ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  const annotated = annotateSnowball(fetched, state.papers, { id: paper.id, workId: seed.workId }, refsOfMine);
+  const sorted = direction === "forward" && order === "recent" ? annotated : sortSnowball(annotated);
+  return { direction, total, candidates: sorted.slice(0, MAX_SNOWBALL).map((c, i) => ({ ...c, reason: c.reason ?? "", rank: i + 1 })), usedLlm: false, warnings };
+}
+
+/** 引用をたどる並べ替えの基準 */
+export function snowballCriterion(direction: SnowballDirection): string {
+  return direction === "backward"
+    ? "種の論文を理解するために先に読む価値がある順。土台になった基礎・古典・サーベイを優先"
+    : "種の論文のその後を知るために読む価値がある順。発展・改良と、新しいサーベイを優先";
+}
+
+const snowballPurpose = (paper: Paper, direction: SnowballDirection) =>
+  `種の論文「${paper.title}」の${direction === "backward" ? "引用している論文から、先に読むべきもの" : "引用されている論文から、次に読むべきもの"}を選ぶ`;
+
+/** 候補を LLM に並べ替えさせる(API)。候補は実在が保証済みなので、LLM は順位と理由だけ */
+export async function rankSnowball(state: AppState, result: SnowballResult, paper: Paper): Promise<SnowballResult> {
+  const llm = await makeProvider(state.settings);
+  const r = await runRank(llm, result.candidates, snowballPurpose(paper, result.direction), snowballCriterion(result.direction), state.settings.language);
+  await recordUsage(state.settings, "rank", r.res);
+  return { ...result, candidates: rankedCandidates(result.candidates, r.output), usedLlm: true };
+}
+
+/** 並べ替えを頼む文面。貼り付けで頼むときに使う(仕様 7.4) */
+export function snowballRankPrompt(state: AppState, result: SnowballResult, paper: Paper): string {
+  return buildRankPrompt(result.candidates, snowballPurpose(paper, result.direction), snowballCriterion(result.direction), state.settings.language);
+}
+
+/** チャット AI の並べ替えの回答で並べ直す。使用量には数えない */
+export function applySnowballRankAnswer(result: SnowballResult, text: string, prompt: string): SnowballResult {
+  const ranked = parseRankAnswer(text, prompt, result.candidates);
+  return { ...result, candidates: rankedCandidates(result.candidates, ranked), usedLlm: true };
+}
+
+/** 選んだ候補をリストに追加する。出どころ(どの論文の引用か)を reason に残す */
+export async function addSnowballed(state: AppState, paper: Paper, picks: (Candidate & { reason?: string })[], direction: SnowballDirection): Promise<{ state: AppState; added: number; errors: string[] }> {
+  const from = `「${paper.title.slice(0, 60)}」${direction === "backward" ? "が引用" : "を引用"}`;
+  return addMany(
+    state,
+    picks.map(({ workId: _w, known: _k, survey: _s, coCited: _c, ...c }: Candidate & { reason?: string } & Partial<SnowballCandidate>) => ({ ...c, source: "import" as const, reason: c.reason || from })),
+  );
 }
 
 /** キューを LLM に並べ替えさせる(Q8) */

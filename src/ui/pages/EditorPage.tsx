@@ -132,6 +132,13 @@ export function EditorPage({ state, setState, go, paperId }: PageProps & { paper
           </UnderstandingFlow>
         )}
         {memo.frontmatter.completed && <IssuesPanel state={state} memo={memo} paper={paper} go={go} />}
+        {memo.frontmatter.completed && paper.kind !== "article" && (
+          <div className="card">
+            <div className="muted">次に読むものを、この論文から</div>
+            <p className="muted" style={{ marginBottom: 8 }}>読んだ論文が引いている古典や、これを引いている最近の研究から次の 1 本を探せます(引用関係は OpenAlex から)。</p>
+            <button className="btn secondary" onClick={() => go({ name: "papers", snowball: paper.id })}>引用をたどる</button>
+          </div>
+        )}
       </div>
     </div>
   );

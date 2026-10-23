@@ -19,6 +19,7 @@ interface OaWork {
   open_access?: { oa_url?: string | null } | null;
   abstract_inverted_index?: Record<string, number[]> | null;
   cited_by_count?: number;
+  referenced_works?: string[];
 }
 
 const BASE = "https://api.openalex.org";
@@ -103,6 +104,68 @@ async function lookupArxivWithFallback(arxivId: string, d: string, fetchFn: Fetc
     return null;
   }
   return { ...c, id: d, doi: d, url: `https://arxiv.org/abs/${arxivId}`, pdf_url: `https://arxiv.org/pdf/${arxivId}` };
+}
+
+// ---- 引用をたどる(仕様 8.2) ----
+
+/** "https://openalex.org/W123" → "W123" */
+export const workIdOf = (id: string): string => id.replace(/^https:\/\/openalex\.org\//, "");
+
+export type WorkCandidate = Candidate & { workId: string };
+
+function toWorkCandidate(w: OaWork): WorkCandidate | null {
+  const c = workToCandidate(w);
+  return c && { ...c, workId: workIdOf(w.id) };
+}
+
+/** 種にする 1 本を引く。参照一覧(referenced_works)も付けて返す */
+export async function lookupWork(ref: { doi?: string | null; workId?: string | null }, fetchFn: FetchFn): Promise<(WorkCandidate & { referenced: string[] }) | null> {
+  const path = ref.workId ? ref.workId : `https://doi.org/${normalizeDoi(ref.doi ?? "").replace(/ /g, "%20")}`;
+  const res = await fetchFn(`${BASE}/works/${path}?select=${SELECT},referenced_works&${UA}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+  const w = (await res.json()) as OaWork;
+  const c = toWorkCandidate(w);
+  return c && { ...c, referenced: (w.referenced_works ?? []).map(workIdOf) };
+}
+
+/** OR で並べられる値の上限(OpenAlex の制限) */
+export const MAX_FILTER_OR = 50;
+
+/** W-ID の一括取得(1 回で 50 件まで)。見つからなかった ID は黙って抜ける */
+export async function worksByIds(ids: string[], fetchFn: FetchFn): Promise<WorkCandidate[]> {
+  if (!ids.length) return [];
+  const url = `${BASE}/works?filter=openalex:${ids.slice(0, MAX_FILTER_OR).join("|")}&per-page=${MAX_FILTER_OR}&select=${SELECT}&${UA}`;
+  const res = await fetchFn(url);
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+  const data = (await res.json()) as { results: OaWork[] };
+  return data.results.map(toWorkCandidate).filter((c): c is WorkCandidate => c !== null);
+}
+
+/** この work を引用している論文。count はヒット総数(取るのは 1 ページだけ) */
+export async function citingWorks(workId: string, sort: "cited_by_count:desc" | "publication_date:desc", fetchFn: FetchFn, perPage = 50): Promise<{ items: WorkCandidate[]; count: number }> {
+  const url = `${BASE}/works?filter=cites:${workId}&sort=${sort}&per-page=${perPage}&select=${SELECT}&${UA}`;
+  const res = await fetchFn(url);
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+  const data = (await res.json()) as { meta?: { count?: number }; results: OaWork[] };
+  return { items: data.results.map(toWorkCandidate).filter((c): c is WorkCandidate => c !== null), count: data.meta?.count ?? data.results.length };
+}
+
+/** リスト内の論文(DOI があるもの)の参照一覧を 1 回の呼び出しでまとめて引く。DOI(正規形)→ W-ID の配列 */
+export async function referencedOf(dois: string[], fetchFn: FetchFn): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!dois.length) return out;
+  const asked = new Set(dois.slice(0, MAX_FILTER_OR).map(normalizeDoi));
+  const url = `${BASE}/works?filter=doi:${[...asked].join("|")}&per-page=${MAX_FILTER_OR}&select=id,doi,referenced_works&${UA}`;
+  const res = await fetchFn(url);
+  if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+  const data = (await res.json()) as { results: OaWork[] };
+  // OpenAlex は頼んでいない DOI の work を混ぜて返すことがある(誤マージ)。共引用の数が汚れるので、頼んだものだけ使う
+  for (const w of data.results) {
+    const d = w.doi ? normalizeDoi(w.doi) : null;
+    if (d && asked.has(d)) out.set(d, (w.referenced_works ?? []).map(workIdOf));
+  }
+  return out;
 }
 
 /** テキストから DOI と arXiv ID を拾う。arXiv ID は DOI 形式に正規化する */
