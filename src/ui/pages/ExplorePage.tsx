@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { PageProps } from "../App";
 import { COURSE_CRITERION, RANK_CRITERION, addMany, apiUsable, updateSettings, applyRankAnswer, createCourse, rankPromptFor, searchPapers, type SearchResult } from "@/core/app";
-import { buildRecommendPrompt, parseRecommendAnswer } from "@/core/llm/handoff";
+import { buildRecommendPrompt, parseRecommendAnswer, type ChatPaperInput } from "@/core/llm/handoff";
+import { buildRecallPrompt, parseRecallAnswer } from "@/core/llm/recall";
 import type { RecommendOutput } from "@/core/llm/tasks";
 import { STAGE_LABELS, buildCourse, stageOf } from "@/core/papers/course";
 import { SOURCES, sourceInfo } from "@/core/scholar/sources";
@@ -18,6 +19,10 @@ export function ExplorePage({ state, setState, go }: PageProps) {
   const [choice, setVia] = useState<"api" | "paste" | "off">("paste");
   /** 貼り戻したクエリ。作ったときのキーワードと目的が今と違えば使わない */
   const [preset, setPreset] = useState<{ keywords: string; purpose: string; out: RecommendOutput } | null>(null);
+  /** AI の記憶からも候補を挙げさせるか(API のとき)。実在は学術 API で照合する */
+  const [recallOn, setRecallOn] = useState(false);
+  /** 貼り戻した「AI の記憶からの候補」。クエリの preset と同じ扱い */
+  const [recallPreset, setRecallPreset] = useState<{ keywords: string; purpose: string; items: ChatPaperInput[] } | null>(null);
   /** 被引用数順のままの検索結果。貼り付けで並べ直すときの元 */
   const [raw, setRaw] = useState<SearchResult | null>(null);
   // 手元の索引は、作ってあるときだけ出す
@@ -63,6 +68,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
 
   const criterion = mode === "course" ? COURSE_CRITERION : RANK_CRITERION;
   const presetNow = preset && preset.keywords === keywords.trim() && preset.purpose === purpose.trim() ? preset.out : undefined;
+  const recallPresetNow = recallPreset && recallPreset.keywords === keywords.trim() && recallPreset.purpose === purpose.trim() ? recallPreset.items : undefined;
 
   const search = async () => {
     setBusy(true);
@@ -70,7 +76,8 @@ export function ExplorePage({ state, setState, go }: PageProps) {
     setResult(null);
     setRaw(null);
     try {
-      const r = await searchPapers(state, keywords.trim(), purpose.trim(), via === "api", [...sources], criterion, via === "paste" ? presetNow : undefined);
+      const recall = via === "api" ? recallOn || undefined : via === "paste" ? recallPresetNow : undefined;
+      const r = await searchPapers(state, keywords.trim(), purpose.trim(), via === "api", [...sources], criterion, via === "paste" ? presetNow : undefined, recall);
       setRaw(r);
       show(r);
     } catch (e) {
@@ -112,6 +119,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
 
   const hasJa = [...sources].some((id) => sourceInfo(id).lang === "ja");
   const recommendPrompt = buildRecommendPrompt(keywords.trim(), purpose.trim(), state.settings.language, hasJa);
+  const recallPrompt = buildRecallPrompt(keywords.trim(), purpose.trim(), state.settings.language);
   const rankPrompt = raw ? rankPromptFor(state, raw, keywords.trim(), purpose.trim(), criterion) : "";
 
   return (
@@ -148,6 +156,11 @@ export function ExplorePage({ state, setState, go }: PageProps) {
             </select>
             {choice === "api" && <button type="button" className="link" onClick={() => setSetupOpen(!setupOpen)}>{apiOk ? "設定を変える" : "設定する"}</button>}
           </div>
+          {via === "api" && (
+            <label title="キーワード検索はアブストに語が載っている論文しか拾えません。AI が知識から挙げた定番・古典も混ぜたいときに">
+              <input type="checkbox" checked={recallOn} onChange={(e) => setRecallOn(e.target.checked)} /> AI の記憶からも候補を挙げさせる(実在を学術 API で照合できたものだけ混ぜる)
+            </label>
+          )}
         </div>
         {readyMsg && choice === "api" && <p className="ok">{readyMsg}</p>}
         {choice === "api" && (setupOpen || !apiOk) && (
@@ -174,10 +187,30 @@ export function ExplorePage({ state, setState, go }: PageProps) {
             )}
           </details>
         )}
+        {via === "paste" && (
+          <details className="field">
+            <summary>AI の記憶から候補を出してもらう(任意){recallPresetNow && ` — ${recallPresetNow.length} 本読み込み済み`}</summary>
+            <p className="muted">
+              キーワード検索はアブストに語が載っている論文しか拾えません。AI が知識から挙げた定番・古典も混ぜたいときに。
+              挙がった論文は「探す」のときに学術 API で実在を照合し、確認できたものだけを候補に混ぜます。
+            </p>
+            {keywords.trim() ? (
+              <PasteRoundTrip prompt={recallPrompt} onAnswer={(t) => setRecallPreset({ keywords: keywords.trim(), purpose: purpose.trim(), items: parseRecallAnswer(t, recallPrompt) })} />
+            ) : (
+              <p className="muted">先にキーワードを入れてください。</p>
+            )}
+            {recallPresetNow && (
+              <p className="muted">
+                {recallPresetNow.length} 本を読み込みました。「探す」で実在を照合して混ぜます。{" "}
+                <button className="btn secondary small" onClick={() => setRecallPreset(null)}>使わない</button>
+              </p>
+            )}
+          </details>
+        )}
         <p className="muted">
           書誌情報は選んだソースの API から取り、DOI かタイトルが同じものは 1 件に統合します。
           {hasJa ? " CiNii / J-STAGE には日本語のクエリを投げます。" : ""}
-          LLM は検索クエリの生成と「読むべき理由」の生成だけを担当し、論文の存在を保証させません。
+          LLM に論文の存在は保証させません。AI の記憶から挙がった論文も、学術 API で実在を照合できたものだけを混ぜます。
         </p>
         <button className="btn" disabled={busy || !keywords.trim() || sources.size === 0} onClick={search}>{busy ? "検索中…" : "探す"}</button>
         {sources.size === 0 && <p className="error">ソースを 1 つ以上選んでください</p>}
@@ -191,6 +224,25 @@ export function ExplorePage({ state, setState, go }: PageProps) {
             {result.queriesJa.length > 0 && ` / 日本語: ${result.queriesJa.join(" / ")}`}
             {result.usedLlm ? "(LLM が順位付け)" : "(被引用数順)"}
           </p>
+          {result.recall && (
+            <>
+              <p className="muted">AI の記憶から: {result.recall.asked} 本中 {result.recall.verified} 本を学術 API で照合できたので、候補に混ぜました。</p>
+              {result.recall.unverified.length > 0 && (
+                <details>
+                  <summary className="muted">照合できなかったもの({result.recall.unverified.length})— 実在しないか、書誌が不正確な可能性があります</summary>
+                  <ul className="muted">
+                    {result.recall.unverified.map((u, i) => (
+                      <li key={i}>
+                        {u.title}
+                        {[u.authors.slice(0, 3).join(", "), u.year].filter(Boolean).length > 0 && `(${[u.authors.slice(0, 3).join(", "), u.year].filter(Boolean).join(", ")})`}
+                        {` — ${u.note}`}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </>
+          )}
           {via === "paste" && raw && raw.candidates.length > 0 && (
             <div className="card">
               <h2 style={{ marginTop: 0 }}>AI に並べてもらう{result.usedLlm && " — 済み"}</h2>
@@ -219,7 +271,7 @@ export function ExplorePage({ state, setState, go }: PageProps) {
                   <td style={{ width: 30 }}><input type="checkbox" checked={selected.has(c.id)} onChange={(e) => { const s = new Set(selected); e.target.checked ? s.add(c.id) : s.delete(c.id); setSelected(s); }} /></td>
                   <td style={{ width: 30 }} className="muted">{c.rank}</td>
                   <td>
-                    {mode === "course" && <span className="badge">{STAGE_LABELS[stages.get(c.id) ?? "classic"]}</span>} <strong>{c.title}</strong>
+                    {mode === "course" && <span className="badge">{STAGE_LABELS[stages.get(c.id) ?? "classic"]}</span>}{c.recalled && <span className="badge" title="LLM の記憶から挙がり、学術 API で実在を照合できた論文">AI の記憶</span>} <strong>{c.title}</strong>
                     <div className="muted">
                       {[(c.authors ?? []).slice(0, 3).join(", "), c.year, c.venue, c.cited_by > 0 ? `被引用 ${c.cited_by}` : null, c.pdf_url ? "PDF あり" : null, (c.sources ?? []).map((s) => sourceInfo(s).label).join("+")].filter(Boolean).join(" · ")}
                     </div>

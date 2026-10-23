@@ -14,7 +14,8 @@ import { judgeCompletion, levelThresholds } from "@/core/memo/completion";
 import { AnthropicProvider } from "@/core/llm/anthropic";
 import { OllamaProvider } from "@/core/llm/ollama";
 import { OpenAiCompatProvider } from "@/core/llm/openaiCompat";
-import { buildRankPrompt, buildRecommendPrompt, parseHandoffResult, parseRankAnswer } from "@/core/llm/handoff";
+import { buildRankPrompt, buildRecommendPrompt, parseHandoffResult, parseRankAnswer, type ChatPaperInput } from "@/core/llm/handoff";
+import { runRecall } from "@/core/llm/recall";
 import { parseJsonLoose, type LlmProvider } from "@/core/llm/provider";
 import { buildGradeRequest, buildSummaryRequest, runGrade, runRank, runRecommend, runSummary, type PaperContext, type RankItem, type RecommendOutput } from "@/core/llm/tasks";
 import { estimateCostUsd, roughTokenCount } from "@/core/usage/cost";
@@ -30,6 +31,7 @@ import { extractIdentifiers, lookupDoi } from "@/core/scholar/openalex";
 import { DEFAULT_SOURCES, dedupe, interleave, searchSource, sourceInfo } from "@/core/scholar/sources";
 import { ARXIV_METADATA_URL, arxivIdOf, arxivIndexPath, arxivParquetPath, similarInIndex } from "@/core/scholar/arxivLocal";
 import type { Candidate } from "@/core/scholar/types";
+import { MAX_VERIFY, verifyRecalled, type UnverifiedPaper } from "@/core/scholar/verify";
 import type { Proposal, ProposalFeedback } from "@/core/types";
 import { newProposal, papersByKey } from "@/core/proposal/model";
 import { buildCoachPrompt, buildCoachRequest, normalizeCoach, parseCoachAnswer, MIN_COACH_CHARS } from "@/core/proposal/coach";
@@ -228,6 +230,8 @@ export interface SearchResult {
   perSource: { id: SourceId; count: number }[];
   usedLlm: boolean;
   warnings: string[];
+  /** AI の記憶からの候補の照合結果(仕様 8)。頼んでいなければ null */
+  recall: { asked: number; verified: number; unverified: UnverifiedPaper[] } | null;
 }
 
 /** 候補の上限。rank のプロンプトに全部入れるので増やしすぎない */
@@ -240,9 +244,10 @@ export const COURSE_CRITERION = "この分野に入ったばかりの人の入�
 
 /**
  * useLlm は API を呼ぶかどうか。preset はチャット AI から貼り戻したクエリ(仕様 7.4)で、あれば API でクエリを作らない。
- * 貼り付けで順位を付けるときは、ここでは被引用数順にしておき、あとで applyRankAnswer に回答を渡す
+ * 貼り付けで順位を付けるときは、ここでは被引用数順にしておき、あとで applyRankAnswer に回答を渡す。
+ * recall は AI の記憶からも候補を挙げる道: true なら API で挙げさせ、配列なら貼り戻したもの。どちらも学術 API で照合できたものだけ混ぜる
  */
-export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[], criterion = RANK_CRITERION, preset?: RecommendOutput): Promise<SearchResult> {
+export async function searchPapers(state: AppState, keywords: string, purpose: string, useLlm: boolean, sourceIds?: SourceId[], criterion = RANK_CRITERION, preset?: RecommendOutput, recall?: boolean | ChatPaperInput[]): Promise<SearchResult> {
   const warnings: string[] = [];
   const sources = (sourceIds?.length ? sourceIds : state.settings.search.sources.length ? state.settings.search.sources : DEFAULT_SOURCES).map(sourceInfo);
   const needJa = sources.some((s) => s.lang === "ja");
@@ -263,6 +268,18 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
     } catch (e) {
       warnings.push(`LLM でのクエリ生成に失敗したためキーワードで直接検索します: ${e instanceof Error ? e.message : e}`);
       llm = null;
+    }
+  }
+
+  // AI の記憶からの候補出し(任意)。挙がった論文は検索のあと学術 API で照合できたものだけ混ぜる(原則 5)
+  let recallItems: ChatPaperInput[] = Array.isArray(recall) ? recall : [];
+  if (recall === true && llm) {
+    try {
+      const r = await runRecall(llm, keywords, purpose, state.settings.language);
+      await recordUsage(state.settings, "recall", r.res);
+      recallItems = r.output;
+    } catch (e) {
+      warnings.push(`AI の記憶からの候補出しに失敗しました(検索は続けます): ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -290,11 +307,19 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
       return dedupe(got);
     }),
   );
+  // 照合は検索のあと(検索で同じ論文が見つかっていれば統合される)。先頭に置き、上限で切られないようにする
+  let recallInfo: SearchResult["recall"] = null;
+  let recallCands: Candidate[] = [];
+  if (recallItems.length) {
+    const v = await verifyRecalled(recallItems, appFetch);
+    recallCands = v.verified;
+    recallInfo = { asked: Math.min(recallItems.length, MAX_VERIFY), verified: v.verified.length, unverified: v.unverified };
+  }
   const known = new Set(state.papers.filter((p) => p.status !== "removed").map((p) => p.id));
-  const cands = dedupe(interleave(lists))
+  const cands = dedupe([...recallCands, ...interleave(lists)])
     .filter((c) => !known.has(c.id))
     .slice(0, MAX_CANDIDATES);
-  const base = { queries, queriesJa, perSource: sources.map((s) => perSource.find((p) => p.id === s.id) ?? { id: s.id, count: 0 }) };
+  const base = { queries, queriesJa, perSource: sources.map((s) => perSource.find((p) => p.id === s.id) ?? { id: s.id, count: 0 }), recall: recallInfo };
   if (!cands.length) return { ...base, candidates: [], usedLlm: false, warnings: [...warnings, "候補が見つかりませんでした"] };
 
   let ranked: RankItem[] | null = null;
@@ -307,7 +332,8 @@ export async function searchPapers(state: AppState, keywords: string, purpose: s
       warnings.push(`順位付けに失敗したため被引用数順で表示します: ${e instanceof Error ? e.message : e}`);
     }
   }
-  const candidates = ranked ? rankedCandidates(cands, ranked) : [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: "", rank: i + 1 }));
+  // reason は recall 由来の候補が持っていることがあるので消さない
+  const candidates = ranked ? rankedCandidates(cands, ranked) : [...cands].sort((a, b) => b.cited_by - a.cited_by).map((c, i) => ({ ...c, reason: c.reason ?? "", rank: i + 1 }));
   return { ...base, candidates, usedLlm: !!ranked, warnings };
 }
 
@@ -321,7 +347,7 @@ function rankedCandidates(cands: Candidate[], ranked: RankItem[]): SearchResult[
     seen.add(it.id);
     return [{ ...c, reason: it.reason, rank: it.rank }];
   });
-  const rest = cands.filter((c) => !seen.has(c.id)).map((c, i) => ({ ...c, reason: "", rank: out.length + i + 1 }));
+  const rest = cands.filter((c) => !seen.has(c.id)).map((c, i) => ({ ...c, reason: c.reason ?? "", rank: out.length + i + 1 }));
   return [...out, ...rest];
 }
 

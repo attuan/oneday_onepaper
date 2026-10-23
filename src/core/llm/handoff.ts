@@ -7,6 +7,7 @@ import type { GradeOutput, Paper, SummaryOutput } from "@/core/types";
 import { articleInput } from "@/core/papers/article";
 import { ARXIV_ID_RE, arxivIdFromDoi } from "@/core/scholar/arxiv";
 import { extractDois } from "@/core/scholar/openalex";
+import { titleKey } from "@/core/scholar/verify";
 import { LlmError, parseJsonLoose } from "./provider";
 import { EVIDENCE_RULES, FEEDBACK_RULES, GRADE_ITEMS, GRADE_RULES, buildRankRequest, buildRecommendRequest, normalizeGrade, paperHeader, parseRank, parseRecommend, verifyEvidence, type PaperContext, type RankCandidate, type RankItem, type RecommendOutput } from "./tasks";
 
@@ -128,7 +129,7 @@ export function shortcutRunUrl(shortcutName: string, returnUrl: string): string 
 // ---- 論文を探す: クエリ生成と順位付け(仕様 7.4 / 8) ----
 // API と同じ指示を 1 つの文面にまとめる。スキーマ指定ができないので、返す形は例で示す
 
-function chatPrompt(req: { system: string; user: string }, example: unknown): string {
+export function chatPrompt(req: { system: string; user: string }, example: unknown): string {
   return [req.system, "", req.user, "", "下の形の JSON だけを返してください。前置き・説明・コードフェンスは不要です。", JSON.stringify(example, null, 1)].join("\n");
 }
 
@@ -141,7 +142,7 @@ export function buildRankPrompt(cands: RankCandidate[], purpose: string, criteri
 }
 
 /** 貼り戻されたものがプロンプトのままなら教える。読み違えのまま進むより分かりやすい */
-function checkPasted(text: string, prompt: string) {
+export function checkPasted(text: string, prompt: string) {
   if (!text.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
   if (text.trim().startsWith(prompt.slice(0, 40))) throw new LlmError("貼り付けたのはこちらのプロンプトのままです。AI の回答をコピーしてから、もう一度押してください", "bad_output");
 }
@@ -190,9 +191,6 @@ export function buildChatPapersPrompt(language: string): string {
 
 export type ChatPaperInput = Partial<Paper> & { title: string };
 
-/** 記号・空白・大小を無視したタイトル。日本語のタイトルも残るように \W は使わない */
-const titleKey = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
-
 const text = (v: unknown): string | null => (typeof v === "string" && v.trim() && !/^(null|none|不明|n\/a|unknown)$/i.test(v.trim()) ? v.trim() : null);
 
 function chatPaper(o: Record<string, unknown>): ChatPaperInput | null {
@@ -227,6 +225,11 @@ function chatPaper(o: Record<string, unknown>): ChatPaperInput | null {
 export function parseChatPapersAnswer(answer: string): ChatPaperInput[] {
   if (!answer.trim()) throw new LlmError("貼り付けた内容が空です", "bad_output");
   if (answer.trim().startsWith(CHAT_PAPERS_HEAD)) throw new LlmError("貼り付けたのはこちらのプロンプトのままです。AI の回答をコピーしてから、もう一度押してください", "bad_output");
+  return parsePapersJson(answer);
+}
+
+/** JSON から論文の候補を取り出す中身。API の出力(recall)にも貼り戻しにも使う */
+export function parsePapersJson(answer: string): ChatPaperInput[] {
   const raw = readable(() => {
     const t = answer.trim();
     // 配列だけで返すモデルもある。parseJsonLoose は { から読むので先に試す

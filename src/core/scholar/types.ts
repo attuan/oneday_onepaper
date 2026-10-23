@@ -8,6 +8,8 @@ export type Candidate = Partial<Paper> & {
   cited_by: number;
   /** どのソースから来たか(重複統合で増える) */
   sources?: SourceId[];
+  /** LLM の記憶から挙がり、学術 API で照合できたもの(scholar/verify.ts) */
+  recalled?: boolean;
 };
 
 export type FetchFn = typeof globalThis.fetch;

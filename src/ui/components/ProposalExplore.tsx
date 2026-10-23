@@ -13,7 +13,7 @@ const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 
 /** 保存してある候補を、並べ替え(貼り付け)に渡せる形にする */
 function asResult(ex: ProposalExploration): SearchResult {
-  return { candidates: ex.candidates.map((c, i) => ({ ...c, rank: i + 1 })), queries: ex.queries, queriesJa: ex.queries_ja, perSource: [], usedLlm: false, warnings: [] };
+  return { candidates: ex.candidates.map((c, i) => ({ ...c, rank: i + 1 })), queries: ex.queries, queriesJa: ex.queries_ja, perSource: [], usedLlm: false, warnings: [], recall: null };
 }
 
 export function ProposalExplore({ state, setState, proposal: p, update, via }: Pick<PageProps, "state" | "setState"> & { proposal: Proposal; update: Update; via: "api" | "paste" }) {
